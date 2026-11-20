@@ -30,6 +30,18 @@ on any machine with a browser and paste the token here. It lasts a year.</p>
   <button type="submit">Save token</button>
 </form>
 
+<h2>MCP</h2>
+<p>Agents reach syncret at <code>/mcp</code> (Streamable HTTP) with <code>Authorization: Bearer &lt;token&gt;</code>.
+{% if mcp_set %}A token is set.{% else %}No token yet, so MCP is closed.{% endif %}
+Behind a reverse proxy, list its hostname in <code>SYNCRET_ALLOWED_HOSTS</code>.</p>
+{% if mcp_token %}
+<div class="warn"><p>Copy the new MCP token now: it is not shown again.</p><pre>{{ mcp_token }}</pre></div>
+{% endif %}
+<form method="post" action="/settings/mcp-token">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button type="submit">{{ 'Replace' if mcp_set else 'Make' }} MCP token</button>
+</form>
+
 <h2>LLM providers</h2>
 {% if llm_error %}<p class="error">{{ llm_error | shown }}</p>{% endif %}
 {% if providers %}

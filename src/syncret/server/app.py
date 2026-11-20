@@ -6,9 +6,12 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
+from starlette.routing import Route
 
 from syncret.server import auth
 from syncret.server.app_base import HEADERS, HERE, NotLoggedIn, check_csrf, page, user
+from syncret.server.mcp import BearerGate, transport_security
+from syncret.server.mcp import build as build_mcp
 from syncret.server.pages import router
 from syncret.server.release import router as release_router
 from syncret.server.service import Service
@@ -19,6 +22,10 @@ from syncret.server.worker import Worker
 def create_app(data, start_worker=True):
     service = Service(data)
 
+    mcp = build_mcp(service)
+    mcp_app = mcp.streamable_http_app(streamable_http_path="/mcp", stateless_http=True,
+                                      json_response=True, transport_security=transport_security())
+
     @asynccontextmanager
     async def lifespan(app):
         task = None
@@ -26,7 +33,8 @@ def create_app(data, start_worker=True):
             worker = Worker(service.queue, service.repo, service.handlers)
             task = asyncio.create_task(worker.run())
         app.state.worker = task
-        yield
+        async with mcp.session_manager.run():
+            yield
         if task:
             task.cancel()
 
@@ -85,6 +93,7 @@ def create_app(data, start_worker=True):
 
     app.include_router(router)
     app.include_router(release_router)
+    app.router.routes.append(Route("/mcp", BearerGate(mcp_app, data)))
 
     @app.get("/")
     async def home(request: Request):

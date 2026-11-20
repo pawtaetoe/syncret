@@ -3,6 +3,7 @@ from fastapi.responses import RedirectResponse, Response
 
 from syncret.core.llm import LlmError
 from syncret.server.app_base import check_csrf, page, user
+from syncret.server.mcp import new_token
 from syncret.server.service import Refused, safe
 
 router = APIRouter()
@@ -185,7 +186,8 @@ def _settings_page(request, status=200, **context):
     context = {"settings": service.settings.load(), "token": service.settings.token_info(),
                "llm_text": service.settings.llm_text(), "providers": providers,
                "llm_error": llm_error, "check": jobs[0] if jobs else None, "message": "",
-               "error": "", **context}
+               "error": "", "mcp_token": "",
+               "mcp_set": (service.data / "secrets" / "mcp-token.json").is_file(), **context}
     return page(request, "settings.html", status=status, **context)
 
 
@@ -231,6 +233,16 @@ async def save_llm(request: Request):
     except ValueError as error:
         return _settings_page(request, status=400, llm_text=text, error=str(error))
     return _settings_page(request, message=f"Providers saved: {', '.join(names) or 'none'}.")
+
+
+# a new mcp token, shown in this response only; it replaces any earlier one
+@router.post("/settings/mcp-token")
+async def mcp_token(request: Request):
+    user(request)
+    await check_csrf(request)
+    token = new_token(_service(request).data)
+    return _settings_page(request, message="New MCP token made; the old one no longer works.",
+                          mcp_token=token)
 
 
 @router.post("/settings/llm-check")
