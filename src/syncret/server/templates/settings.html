@@ -2,6 +2,7 @@
 {% block title %}Settings{% endblock %}
 {% block main %}
 <h1>Settings</h1>
+<p class="intro">How often things run, the Claude token used for LLM checks, access for agents over MCP, and which models review your skills.</p>
 {% if message %}<p class="notice ok" role="status">{{ message | shown }}</p>{% endif %}
 {% if error %}<p class="notice bad" role="alert">{{ error | shown }}</p>{% endif %}
 
@@ -24,7 +25,7 @@
 </section>
 
 <section class="card">
-<h2>Claude Code token</h2>
+<h2><img class="ic" src="/static/icons/claude-code.svg" alt="" width="29" height="18"> Claude Code token</h2>
 {% if token %}
 <p class="notice {{ 'caution' if token.warn else 'ok' }}">Saved {{ token.saved | when }} ({{ token.days }} days ago).
 {% if token.expires_in > 0 %}It ends in about {{ token.expires_in }} days.{% else %}It has probably ended.{% endif %}
@@ -80,7 +81,7 @@ Behind a reverse proxy, list its hostname in <code>SYNCRET_ALLOWED_HOSTS</code>.
 <form method="post" action="/settings/llm">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <label for="llm">llm.toml</label>
-  <textarea id="llm" name="llm" rows="16" spellcheck="false" class="wide">{{ llm_text }}</textarea>
+  <textarea id="llm" name="llm" rows="16" spellcheck="false" class="wide" placeholder="[providers.claude]&#10;type = &quot;claude-code&quot;&#10;can_see_own = true">{{ llm_text }}</textarea>
   <div class="form-actions"><button type="submit" class="primary">Save providers</button></div>
 </form>
 </section>

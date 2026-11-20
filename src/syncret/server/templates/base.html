@@ -1,13 +1,15 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-radius="sharp" data-buttons="solid">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
-  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#e2e5ea" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0a0d14" media="(prefers-color-scheme: dark)">
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
   <title>{% block title %}syncret{% endblock %} - syncret</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="preload" href="/static/fonts/manrope.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="/static/syncret.css">
   <script src="/static/htmx.min.js" defer></script>
   <script src="/static/syncret.js" defer></script>
@@ -18,9 +20,9 @@
   {% set path = request.url.path %}
   <header class="top">
     <div class="top-inner">
-      <a class="brand" href="/proposals"><span class="mark" aria-hidden="true">s</span>syncret</a>
+      <a class="brand" href="/proposals"><span class="mark" data-mark="stack" aria-hidden="true"></span>syncret</a>
       <nav aria-label="Main">
-        {% for href, label in [("/proposals", "Proposals"), ("/add", "Add"), ("/skills", "Skills"), ("/scan", "Scan"), ("/jobs", "Jobs"), ("/machines", "Machines"), ("/account", "Claude account"), ("/settings", "Settings")] %}
+        {% for href, label in [("/proposals", "Proposals"), ("/add", "Add"), ("/skills", "Skills"), ("/scan", "Scan"), ("/jobs", "Activity"), ("/machines", "Machines"), ("/account", "Claude account"), ("/settings", "Settings")] %}
         <a href="{{ href }}"{% if path == href or path.startswith(href ~ "/") %} aria-current="page"{% endif %}>{{ label }}</a>
         {% endfor %}
       </nav>
@@ -34,5 +36,6 @@
   <main id="main">
   {% block main %}{% endblock %}
   </main>
+  <footer class="foot"><p>syncret vets and syncs agent skills. Product names and logos are trademarks of their owners.</p></footer>
 </body>
 </html>

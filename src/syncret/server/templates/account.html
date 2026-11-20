@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block title %}Claude account{% endblock %}
 {% block main %}
-<h1>Claude account skills</h1>
-<p class="muted">The Claude apps take skills only as a zip upload in their settings. Download each skill marked
+<h1><img class="ic ic-lg" src="/static/icons/claude.svg" alt="" width="28" height="28"> Claude account skills</h1>
+<p class="intro">The Claude apps take skills only as a zip upload in their settings. Download each skill marked
 out of date, upload it, then tick it as done. Claude Code also loads these when signed in to the
 same account, so skills targeted at both are not linked into <code>~/.claude/skills</code>.</p>
 {% if not skills %}<div class="card empty">No published skill targets the Claude account.</div>{% else %}

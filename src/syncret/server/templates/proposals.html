@@ -6,7 +6,19 @@
   <h1>Proposals</h1>
   <a class="btn primary" href="/add">Add a skill</a>
 </div>
+<p class="intro">Every change to your skills waits here until you approve it. Nothing reaches your computers before that.</p>
+{% if setup | rejectattr("1") | list %}
+<section class="card setup" aria-labelledby="setup-title">
+  <h2 id="setup-title">Get started</h2>
+  <ol class="steps">
+  {% for label, done, href in setup %}
+    <li class="{{ 'done' if done }}">{% if done %}<span class="tick" aria-hidden="true"></span>{{ label }} <span class="visually-hidden">(done)</span>{% else %}<span class="tick" aria-hidden="true"></span><a href="{{ href }}">{{ label }}</a>{% endif %}</li>
+  {% endfor %}
+  </ol>
+</section>
+{% endif %}
 <h2>Waiting for you</h2>
+{% if waiting %}<p class="muted">Open one to read its vetting report and changes, then approve or reject it.</p>{% include "_verdicts.html" %}{% endif %}
 {% if waiting %}
 <div class="card table-card">
 <table>
@@ -15,7 +27,7 @@
 </table>
 </div>
 {% else %}
-<div class="card empty">Nothing waiting. <a href="/add">Add a skill</a> to start one.</div>
+<div class="card empty">Nothing waiting for you. <a href="/add">Add a skill</a> and it shows up here for review.</div>
 {% endif %}
 {% if done %}
 <h2>Earlier</h2>

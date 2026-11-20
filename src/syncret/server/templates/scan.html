@@ -9,6 +9,7 @@
     <button type="submit" class="primary"{% if running %} disabled{% endif %}>Scan now</button>
   </form>
 </div>
+<p class="intro">Checks every published skill again for risky content, duplicates, name clashes and overlapping instructions. Run it after you change the LLM providers or after syncret is updated.</p>
 {% if last %}
 {% set r = last.result %}
 <p class="muted">Last scan: job <a href="/jobs/{{ last.id }}">{{ last.id }}</a>, <span class="num">{{ last.finished | when }}</span>.</p>

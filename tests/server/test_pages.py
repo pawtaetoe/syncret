@@ -176,3 +176,32 @@ def test_job_partial(client):
     assert "<html" in full
     assert "<html" not in partial
     assert 'hx-trigger="every 2s"' in partial
+
+
+# a fresh server walks a new user through setup and each step ticks off once done
+def test_getting_started(client):
+    service = client.app.state.service
+    page = client.get("/proposals").text
+    assert "Get started" in page
+    assert 'href="/add">Add a skill from GitHub' in page
+    post(client, "/add", {"source": str(FIXTURES / "good")})
+    drain(service)
+    post(client, "/proposals/1/approve", {"base": service.proposals.get(1).base})
+    drain(service)
+    service.machines.create("laptop")
+    page = client.get("/proposals").text
+    assert "Get started" in page
+    assert 'href="/machines">Install the client' in page
+    service.machines.synced(service.machines.list()[0].id, "abc123")
+    assert "Get started" not in client.get("/proposals").text
+
+
+# jobs show what they did in plain words, and machines show how to install the client
+def test_plain_words(client):
+    service = client.app.state.service
+    job = service.queue.enqueue("scan-all")
+    assert "Scanning all skills" in client.get("/jobs").text
+    assert "<h1>Scanning all skills</h1>" in client.get(f"/jobs/{job}").text
+    page = post(client, "/machines", {"name": "laptop"}).text
+    assert "Set up laptop" in page
+    assert "client/install.sh --url http://testserver" in page
