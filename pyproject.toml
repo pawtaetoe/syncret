@@ -1,0 +1,39 @@
+[project]
+name = "syncret"
+version = "0.1.0"
+description = "Vet agent skills, find duplicates and conflicts, and merge them into one consistent set"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+syncret = "syncret.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.9,<0.14"]
+build-backend = "uv_build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.terminal]
+error-on-warning = true
+
+[dependency-groups]
+dev = [
+    "pytest>=9.2.0",
+    "ruff>=0.17.6",
+    "ty>=0.0.107",
+]
