@@ -33,6 +33,18 @@ def text_files(skill):
     return texts
 
 
+# findings worst first, then by file and line
+def _ordered(findings):
+    return sorted(findings, key=lambda f: (-SEVERITIES.index(f.severity), f.file, f.line))
+
+
+# a report with more findings added; findings are only ever added, so the verdict can only rise
+def with_findings(report, extra):
+    findings = _ordered([*report.findings, *extra])
+    return Report(report.name, report.path, report.hash,
+                  verdict(f.severity for f in findings), findings)
+
+
 # run every rule over a skill; a load error is a warn finding of its own
 def vet(skill):
     texts = text_files(skill)
@@ -41,7 +53,7 @@ def vet(skill):
         findings.append(Finding("load-error", "warn", "SKILL.md", 1, skill.error))
     for rule in rules.RULES:
         findings.extend(rule.run(skill, texts))
-    findings.sort(key=lambda f: (-SEVERITIES.index(f.severity), f.file, f.line))
+    findings = _ordered(findings)
     return Report(
         skill.name,
         str(skill.path),

@@ -11,6 +11,7 @@ def test_help_lists_commands(capsys):
     out = capsys.readouterr().out
     assert "vet" in out
     assert "scan" in out
+    assert "llm" in out
 
 
 # each command exposes its spec flags

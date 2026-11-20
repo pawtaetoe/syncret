@@ -6,12 +6,30 @@ from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 
+from syncret.core.diff_rules import diff_rules, skill_file
+from syncret.core.llm import PROVIDERS, Llm, LlmError, default_config_path
+from syncret.core.merge import MergeError, Source, merge
+from syncret.core.review import reviewed
 from syncret.core.scan import scan
-from syncret.core.skill import find_skills
+from syncret.core.skill import Skill, find_skills
 from syncret.core.upstream import Upstream, UpstreamError
 from syncret.core.vet import verdict, vet
 
 _WIDTH = 120
+
+
+# options for commands that can use an llm
+def _llm_options(command):
+    command.add_argument("--no-llm", action="store_true", help="run only checks that need no model")
+    command.add_argument("--config", help=f"LLM config file (default {default_config_path()})")
+    command.add_argument("--public", action="store_true",
+                         help="treat local skills as public, so providers without can_see_own "
+                              "may see them")
+
+
+# the configured llm, or None with --no-llm or without a config; LlmError on a broken config
+def _llm(args):
+    return None if args.no_llm else Llm.load(args.config)
 
 
 # argument parser for every syncret command
@@ -25,24 +43,52 @@ def _parser():
     vet = commands.add_parser("vet", help="check a skill for risky content, exit 1 on block")
     vet.add_argument("path", help="a skill, a folder of skills, or a link")
     vet.add_argument("--json", action="store_true", help="print the report as JSON")
+    _llm_options(vet)
 
     scan = commands.add_parser(
         "scan", help="vet skill folders and find duplicates, name collisions and overlaps"
     )
     scan.add_argument("dirs", nargs="+", help="one or more skill folders")
     scan.add_argument("--json", action="store_true", help="print the report as JSON")
-    scan.add_argument("--no-llm", action="store_true", help="run only checks that need no model")
+    _llm_options(scan)
+
+    diff = commands.add_parser(
+        "diff-rules", help="list rules kept, changed or dropped between two versions of a skill"
+    )
+    diff.add_argument("old", help="the earlier skill folder or SKILL.md")
+    diff.add_argument("new", help="the later skill folder or SKILL.md")
+    diff.add_argument("--json", action="store_true", help="print the report as JSON")
+
+    merge_cmd = commands.add_parser(
+        "merge", help="merge skills into one with an LLM, keeping every rule or saying why not"
+    )
+    merge_cmd.add_argument("sources", nargs="+", help="two or more skill folders or links")
+    merge_cmd.add_argument("--name", required=True, help="name of the merged skill")
+    merge_cmd.add_argument("--out", required=True, help="folder to create for the merged skill")
+    merge_cmd.add_argument("--json", action="store_true", help="print the report as JSON")
+    merge_cmd.add_argument("--config", help=f"LLM config file (default {default_config_path()})")
+    merge_cmd.add_argument("--public", action="store_true",
+                           help="treat local skills as public, so providers without can_see_own "
+                                "may see them")
+
+    llm = commands.add_parser("llm", help="check the configured LLM providers")
+    llm_commands = llm.add_subparsers(dest="llm_command", required=True)
+    check = llm_commands.add_parser(
+        "check", help="ask each provider a test question that holds no skill content"
+    )
+    check.add_argument("--config", help=f"config file (default {default_config_path()})")
     return parser
 
 
-# vet reports for a local path or a github or skills.sh link; raises UpstreamError when not found
-def _vet_reports(target):
+# (skill, report, own) for a local path or a github or skills.sh link; local skills are own
+# unless public; raises UpstreamError when not found
+def _vet_reports(target, public):
     path = Path(target)
     if path.exists():
-        return [vet(skill) for skill in find_skills(path)]
+        return [(skill, vet(skill), not public) for skill in find_skills(path)]
     upstream = Upstream.parse(target)
     if upstream:
-        return [replace(vet(skill), path=link) for skill, link in upstream.load()]
+        return [(skill, replace(vet(skill), path=link), False) for skill, link in upstream.load()]
     if "://" in target:
         raise UpstreamError(f"unsupported link: {target} (use a GitHub or skills.sh link)")
     raise UpstreamError(f"no such path: {target}")
@@ -51,22 +97,36 @@ def _vet_reports(target):
 # vet every skill at a path or link, exit 1 if any is blocked, 2 if there is nothing to vet
 def _vet(args):
     try:
-        reports = _vet_reports(args.path)
-    except UpstreamError as error:
+        llm = _llm(args)
+        vetted = _vet_reports(args.path, args.public)
+    except (UpstreamError, LlmError) as error:
         print(f"syncret: {error}", file=sys.stderr)
         return 2
-    if not reports:
+    if not vetted:
         print(f"syncret: no SKILL.md found under {args.path}", file=sys.stderr)
         return 2
+    reports, notes = [], []
+    for skill, report, own in vetted:
+        if llm is not None:
+            report, note = reviewed(skill, report, llm, own)
+            notes.append(note)
+        reports.append(report)
     overall = verdict(report.verdict for report in reports)
     if args.json:
         skills = [report.to_dict() for report in reports]
-        print(json.dumps({"verdict": overall, "skills": skills}, indent=2))
+        print(json.dumps({"verdict": overall, "skills": skills, "notes": notes}, indent=2))
     else:
+        _print_notes(notes)
         _print_reports(reports)
         if len(reports) > 1:
             print(f"\n{_summary(reports)}")
     return 1 if overall == "block" else 0
+
+
+# notes on how the llm steps went, to stderr so they never mix with the report
+def _print_notes(notes):
+    for note in notes:
+        print(f"syncret: {_shown(note)}", file=sys.stderr)
 
 
 # untrusted text made safe for a terminal: control, format and line-separator chars become
@@ -112,10 +172,15 @@ def _scan(args):
     if missing:
         print(f"syncret: no such folder: {', '.join(missing)}", file=sys.stderr)
         return 2
-    if not args.no_llm:
+    try:
+        llm = _llm(args)
+    except LlmError as error:
+        print(f"syncret: {error}", file=sys.stderr)
+        return 2
+    if llm is None and not args.no_llm:
         print("syncret: no LLM configured, running only checks that need no model",
               file=sys.stderr)
-    report = scan(args.dirs)
+    report = scan(args.dirs, llm, own=not args.public)
     if not report.skills:
         print(f"syncret: no SKILL.md found under {', '.join(args.dirs)}", file=sys.stderr)
         return 2
@@ -129,12 +194,150 @@ def _scan(args):
         print(f"vet: {_summary(report.skills)}")
         _print_groups("exact duplicates", [(d.hash[:12], d.paths) for d in report.duplicates])
         _print_groups("name collisions", [(c.name, c.paths) for c in report.collisions])
-        _print_groups("overlap candidates, unconfirmed",
-                      [(f"{o.score:.2f}", o.paths) for o in report.overlaps])
+        if llm is None:
+            _print_groups("overlap candidates, unconfirmed",
+                          [(f"{o.score:.2f}", o.paths) for o in report.overlaps])
+        else:
+            _print_overlaps(report.overlaps)
+        _print_notes(report.notes)
     return 1 if report.verdict == "block" else 0
+
+
+# labelled overlaps: label, score and paths, then the summary and each quoted disagreement
+def _print_overlaps(overlaps):
+    print(f"\noverlaps: {len(overlaps) or 'none'}")
+    for o in overlaps:
+        key = f"{o.label} {o.score:.2f}"
+        print(f"  {key}  {_shown(o.paths[0])}")
+        print(f"  {' ' * len(key)}  {_shown(o.paths[1])}")
+        detail = o.summary or o.note
+        if detail:
+            print(f"      {_shown(detail)}")
+        for d in o.disagreements:
+            for side in ("a", "b"):
+                quote = d[side]
+                print(f"      {side.upper()} {_shown(quote['file'])}:{quote['line']}  "
+                      f"{_shown(quote['text'])[:_WIDTH]}")
+            print(f"        {_shown(d['note'])}")
+
+
+# one rule as "old:12  text", shortened and made safe for a terminal
+def _rule(side, rule):
+    text = _shown(rule.text)
+    text = text if len(text) <= _WIDTH else text[:_WIDTH - 3] + "..."
+    return f"{side}:{rule.line}  {text}"
+
+
+# rules kept, changed, dropped or added; exit 1 if one is dropped or flips meaning, 2 if missing
+def _diff_rules(args):
+    old, new = skill_file(args.old), skill_file(args.new)
+    missing = [str(p) for p in (old, new) if not p.is_file()]
+    if missing:
+        print(f"syncret: no such skill or file: {', '.join(missing)}", file=sys.stderr)
+        return 2
+    result = diff_rules(old.read_text(errors="replace"), new.read_text(errors="replace"))
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+        return 0 if result.ok else 1
+    print(f"kept: {len(result.kept)}")
+    print(f"changed: {len(result.changed)}")
+    for pair in result.changed:
+        flag = "  meaning flipped" if pair.flipped else ""
+        print(f"  {pair.score:.2f}  {_rule('old', pair.old)}{flag}")
+        print(f"        {_rule('new', pair.new)}")
+    print(f"dropped: {len(result.dropped)}")
+    for rule in result.dropped:
+        print(f"  {_rule('old', rule)}")
+    print(f"added: {len(result.added)}")
+    for rule in result.added:
+        print(f"  {_rule('new', rule)}")
+    return 0 if result.ok else 1
+
+
+# one merge source from a local skill folder or a link to one skill
+def _source(target):
+    path = Path(target)
+    if path.exists():
+        if not (path / "SKILL.md").is_file():
+            raise UpstreamError(f"{target} is not a skill folder (no SKILL.md)")
+        return Source(Skill(path), str(path.resolve()))
+    upstream = Upstream.parse(target)
+    if upstream is None:
+        raise UpstreamError(f"no such skill or supported link: {target}")
+    loaded = upstream.load()
+    if len(loaded) != 1:
+        raise UpstreamError(f"{target} holds {len(loaded)} skills; link to exactly one")
+    skill, link = loaded[0]
+    return Source(skill, link, commit=link.split("/tree/")[1].split("/")[0])
+
+
+# merge skills; exit 1 if rules went missing without a reason or the result is blocked, 2 if
+# it could not run
+def _merge(args):
+    try:
+        llm = Llm.load(args.config)
+        sources = [_source(target) for target in args.sources]
+    except (UpstreamError, LlmError) as error:
+        print(f"syncret: {error}", file=sys.stderr)
+        return 2
+    if llm is None:
+        config = args.config or default_config_path()
+        print(f"syncret: merge needs an LLM; none configured ({config})", file=sys.stderr)
+        return 2
+    own = not args.public and any(not s.commit for s in sources)
+    try:
+        merged = merge(sources, args.name, args.out, llm, own)
+    except MergeError as error:
+        print(f"syncret: {error}", file=sys.stderr)
+        for rule in error.unexplained:
+            print(f"  {_shown(rule)}", file=sys.stderr)
+        return 1 if error.unexplained else 2
+    report = vet(Skill(merged.out))
+    if args.json:
+        print(json.dumps({"out": str(merged.out), "provider": merged.provider,
+                          "dropped": merged.dropped, "untraced": merged.untraced,
+                          "vet": report.to_dict()}, indent=2))
+    else:
+        print(f"merged {len(sources)} skills into {_shown(merged.out)} (by {merged.provider})")
+        print(f"dropped with a reason: {len(merged.dropped)}")
+        for d in merged.dropped:
+            print(f"  {_shown(d['source'])}: {_shown(d['rule'])}")
+            print(f"    {_shown(d['reason'])}")
+        print(f"in no source, check these: {len(merged.untraced)}")
+        for u in merged.untraced:
+            print(f"  SKILL.md:{u['line']}  {_shown(u['text'])[:_WIDTH]}")
+        _print_reports([report])
+    return 1 if report.verdict == "block" else 0
+
+
+# one line per provider: works or not, its type and model, and whether it may see own skills;
+# exit 0 if any works, 1 if none do, 2 without a config
+def _llm_check(args):
+    try:
+        chain = Llm.load(args.config)
+    except LlmError as error:
+        print(f"syncret: {error}", file=sys.stderr)
+        return 2
+    if chain is None:
+        print(f"syncret: no LLM configured ({args.config or default_config_path()})",
+              file=sys.stderr)
+        return 2
+    kinds = {cls: kind for kind, cls in PROVIDERS.items()}
+    working = 0
+    for provider, error in chain.check():
+        working += error is None
+        model = getattr(provider, "model", "") or "default model"
+        own = "may see own skills" if provider.can_see_own else "upstream skills only"
+        status = "ok" if error is None else "fail"
+        print(f"{status:<5} {provider.name}  {kinds[type(provider)]}, {model}, {own}")
+        if error:
+            print(f"      {_shown(error)}")
+    return 0 if working else 1
 
 
 # entry point, returns the process exit code
 def main(argv=None):
     args = _parser().parse_args(argv)
-    return _vet(args) if args.command == "vet" else _scan(args)
+    commands = {"vet": _vet, "scan": _scan, "diff-rules": _diff_rules, "merge": _merge,
+                "llm": _llm_check}
+    return commands[args.command](args)
