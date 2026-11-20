@@ -1,0 +1,15 @@
+[package]
+name = "syncret-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+rusqlite.workspace = true
+syncret-core.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
+tempfile.workspace = true

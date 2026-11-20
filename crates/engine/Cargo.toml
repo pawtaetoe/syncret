@@ -1,0 +1,15 @@
+[package]
+name = "syncret-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+syncret-core.workspace = true
+syncret-kinds.workspace = true
+syncret-store.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
