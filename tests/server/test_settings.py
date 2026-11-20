@@ -169,3 +169,15 @@ def test_llm_check_job(tmp_path):
         {"name": "fake", "ok": True, "error": None, "can_see_own": False}
     ]
     assert Path(answers).is_file()
+
+
+# syncret set-claude-token reads the token silently and stores it
+def test_cli_set_claude_token(tmp_path, monkeypatch, capsys):
+    from syncret.cli import main
+
+    answers = iter([TOKEN, "short"])
+    monkeypatch.setattr("getpass.getpass", lambda prompt: next(answers))
+    assert main(["set-claude-token", "--data", str(tmp_path)]) == 0
+    assert Settings(tmp_path).token_info()["days"] == 0
+    assert TOKEN not in capsys.readouterr().out
+    assert main(["set-claude-token", "--data", str(tmp_path)]) == 2

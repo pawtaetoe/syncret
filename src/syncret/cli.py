@@ -80,6 +80,9 @@ def _parser():
     serve.add_argument("--port", type=int, default=8080, help="port to listen on")
     password = commands.add_parser("set-password", help="set the dashboard password")
     password.add_argument("--data", help="data folder (as for serve)")
+    token = commands.add_parser("set-claude-token",
+                                help="save a `claude setup-token` token for the server")
+    token.add_argument("--data", help="data folder (as for serve)")
 
     llm = commands.add_parser("llm", help="check the configured LLM providers")
     llm_commands = llm.add_subparsers(dest="llm_command", required=True)
@@ -350,6 +353,19 @@ def _set_password(args):
     return 0
 
 
+# read a claude setup-token token at a silent prompt and store it in the data folder
+def _set_claude_token(args):
+    from syncret.server.settings import Settings
+
+    try:
+        Settings(_data(args)).save_token(getpass.getpass("Token from `claude setup-token`: "))
+    except ValueError as error:
+        print(f"syncret: {error}", file=sys.stderr)
+        return 2
+    print(f"Claude token saved for {_data(args)}; it lasts a year")
+    return 0
+
+
 # one line per provider: works or not, its type and model, and whether it may see own skills;
 # exit 0 if any works, 1 if none do, 2 without a config
 def _llm_check(args):
@@ -379,5 +395,6 @@ def _llm_check(args):
 def main(argv=None):
     args = _parser().parse_args(argv)
     commands = {"vet": _vet, "scan": _scan, "diff-rules": _diff_rules, "merge": _merge,
-                "llm": _llm_check, "serve": _serve, "set-password": _set_password}
+                "llm": _llm_check, "serve": _serve, "set-password": _set_password,
+                "set-claude-token": _set_claude_token}
     return commands[args.command](args)

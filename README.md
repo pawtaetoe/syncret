@@ -278,6 +278,67 @@ Then in VS Code's `settings.json` (on the remote, for Remote-SSH):
 
 Per the extension's docs, setting a wrapper also skips the "conversation still open elsewhere" check, turns off plan-mode restore on resume, and lists `claude -p` sessions alongside the extension's own. This setup follows the extension's documentation and has not been tested by syncret itself. On Windows, use a `.cmd` wrapper with the same logic.
 
+## Server
+
+`syncret` also runs as a small server for one person, in one Docker container: a git-backed skills repo where every change is a proposal you approve in a web dashboard, an MCP endpoint for agents, and releases that a sync client (coming next) pulls onto your machines.
+
+### First run
+
+```bash
+git clone https://github.com/pawtaetoe/syncret && cd syncret
+docker compose up -d --build
+docker compose exec syncret syncret set-password
+docker compose exec syncret syncret set-claude-token   # optional, for the claude-code provider
+```
+
+Then open `http://127.0.0.1:8080` and log in. The port is published on `127.0.0.1` only. To reach it from other machines, put your own reverse proxy or tunnel in front. `compose.yaml` reads these variables (from the shell or an `.env` file next to it):
+
+| Variable | Default | Use |
+|---|---|---|
+| `SYNCRET_BIND` | `127.0.0.1` | Host address to publish the port on |
+| `SYNCRET_PORT` | `8080` | Host port |
+| `SYNCRET_HTTPS` | `0` | Set `1` when your proxy serves https, so the session cookie is marked Secure |
+| `SYNCRET_ALLOWED_HOSTS` | | Your proxy's hostname, comma-separated; the MCP endpoint refuses other `Host` headers |
+
+The Claude token comes from `claude setup-token`, run once on any machine with a browser. It lasts a year and only makes model requests, so the container needs no Claude login. The Settings page shows its age and warns before it ends. Paste a new one there or with `set-claude-token`.
+
+Everything lives in the `syncret-data` volume: the skills repo, the job database, settings, releases, and a `secrets/` folder (password hash, session key, Claude token, MCP token hash) readable only by the container's user. The container runs as a non-root user on a read-only filesystem with all capabilities dropped.
+
+### Dashboard
+
+| Page | Shows |
+|---|---|
+| Proposals | Pending changes with their vetting results |
+| Proposal | The diff, vetting report, scan findings, a suggested merge, and Approve or Reject |
+| Add | A GitHub or skills.sh link (or a folder on the server), then which skills to add and where to ship them |
+| Skills | Every published skill with its kind, source, pin and targets; edit own skills, remove any |
+| Scan | Duplicates, collisions and overlaps across published skills |
+| Jobs | Running and finished jobs with their logs |
+| Machines | One release token per machine, its last sync and release |
+| Claude account | Skills targeted at the Claude apps, a zip of each to upload, and which are out of date |
+| Settings | Sync intervals, the Claude token, the MCP token and LLM providers (as `llm.toml`) |
+
+- **Every change is a proposal.** Adding, updating, merging, editing or removing a skill opens a proposal on its own branch, vetted and scanned against every published skill. Nothing reaches your machines until you approve it.
+- **Stale approvals are refused.** Approving checks that nothing else changed since the proposal was built. If something did, the proposal is rebuilt.
+- **Blocked proposals cannot be approved.**
+- **Overlaps suggest merges.** With an LLM configured, adding a skill that overlaps a published one also opens a merge proposal. Pick one, or reject both.
+- **One writer.** A single background worker makes every change, one job at a time. The dashboard and MCP only queue jobs.
+
+### MCP
+
+Make a token on the Settings page, then add the endpoint to an agent, for example Claude Code:
+
+```bash
+claude mcp add --transport http syncret https://syncret.example.com/mcp \
+  --header "Authorization: Bearer syncret_mcp_..."
+```
+
+Tools: `list_skills`, `list_proposals`, `show_proposal`, `approve(id, base)`, `reject`, `add_skill`, `remove_skill`, `propose_edit`, `propose_merge`, `scan` and `job_status`. Writes queue jobs and return a job id. `approve` only goes through while `base` is still current, and its description tells agents to use it only when you say so. `show_proposal` marks skill content as untrusted.
+
+### Releases
+
+Each approval publishes a release: a tarball holding only the skills meant for local agents, one folder each, and a `manifest.json` saying which agents link each one. A skill also targeted at the Claude account is not linked for Claude Code, which already loads it from the account. Machines fetch `/release/latest` and `/release/<id>.tar.gz` with their token from the Machines page.
+
 ## Exit codes
 
 | Code | Meaning |
@@ -345,17 +406,18 @@ Skill text printed to the terminal shows control and invisible characters as `<U
 ## Development
 
 ```bash
-uv sync
+uv sync --all-extras
 uv run pytest
 uv run ruff check
 uv run ty check src/
+SYNCRET_CONTAINER_TEST=1 uv run pytest tests/container   # builds and runs the image
 ```
 
 ## Roadmap
 
 1. Core CLI with `vet` and `scan --no-llm` (0.1.0)
 2. LLM backends, conflict checks, `merge` and `diff-rules` (next release)
-3. A single-user server with a dashboard, an MCP endpoint and an approval queue
+3. A single-user server with a dashboard, an MCP endpoint and an approval queue (this branch)
 4. A sync client, upstream tracking and merge rebuilds
 
 ## License
