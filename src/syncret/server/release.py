@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 from fastapi import APIRouter, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 
 from syncret.server.db import now
 
@@ -42,11 +42,22 @@ def build_release(repo, commit, release_id, path):
             archive.add(source, arcname=f"skills/{folder}", filter=_clean)
             manifest["skills"].append({"folder": folder, "key": key, "name": entry["name"],
                                        "kind": entry["kind"], "links": agents})
-        data = (json.dumps(manifest, indent=2) + "\n").encode()
-        info = tarfile.TarInfo("manifest.json")
-        info.size, info.mode = len(data), 0o644
-        archive.addfile(info, io.BytesIO(data))
+        _add_file(archive, "manifest.json", json.dumps(manifest, indent=2) + "\n")
+        _add_file(archive, "links.tsv", links_tsv(manifest))
     return manifest
+
+
+# folder and 1/0 per agent, one skill per line, for clients without a json parser
+def links_tsv(manifest):
+    return "".join(f"{s['folder']}\t" + "\t".join("1" if s["links"][a] else "0" for a in AGENTS)
+                   + "\n" for s in manifest["skills"])
+
+
+def _add_file(archive, name, text):
+    data = text.encode()
+    info = tarfile.TarInfo(name)
+    info.size, info.mode = len(data), 0o644
+    archive.addfile(info, io.BytesIO(data))
 
 
 # tar entries without owner names or times from the build machine
@@ -69,8 +80,9 @@ def _refused():
                         headers={"WWW-Authenticate": "Bearer"})
 
 
+# the latest release; format=text gives "id sha256 interval_minutes" for shell clients
 @router.get("/release/latest")
-async def latest(request: Request):
+async def latest(request: Request, format: str = "json"):
     machine = _machine(request)
     if machine is None:
         return _refused()
@@ -78,9 +90,11 @@ async def latest(request: Request):
     release = service.latest_release()
     if release is None:
         return JSONResponse({"detail": "nothing published yet"}, 404)
+    interval = service.settings.load()["sync_interval_minutes"]
+    if format == "text":
+        return PlainTextResponse(f"{release['id']} {release['sha256']} {interval}\n")
     return {"id": release["id"], "sha256": release["sha256"],
-            "url": f"/release/{release['id']}.tar.gz",
-            "interval_minutes": service.settings.load()["sync_interval_minutes"]}
+            "url": f"/release/{release['id']}.tar.gz", "interval_minutes": interval}
 
 
 @router.get("/release/{release_id}.tar.gz")

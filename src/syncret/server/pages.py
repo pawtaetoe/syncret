@@ -183,10 +183,11 @@ def _settings_page(request, status=200, **context):
     except LlmError as error:
         llm_error = str(error)
     jobs = [j for j in service.queue.jobs(200) if j.kind == "llm-check"]
+    updates = [j for j in service.queue.jobs(500) if j.kind == "check-updates"]
     context = {"settings": service.settings.load(), "token": service.settings.token_info(),
                "llm_text": service.settings.llm_text(), "providers": providers,
                "llm_error": llm_error, "check": jobs[0] if jobs else None, "message": "",
-               "error": "", "mcp_token": "",
+               "error": "", "mcp_token": "", "updates": updates[0] if updates else None,
                "mcp_set": (service.data / "secrets" / "mcp-token.json").is_file(), **context}
     return page(request, "settings.html", status=status, **context)
 
@@ -243,6 +244,13 @@ async def mcp_token(request: Request):
     token = new_token(_service(request).data)
     return _settings_page(request, message="New MCP token made; the old one no longer works.",
                           mcp_token=token)
+
+
+@router.post("/settings/check-updates")
+async def check_updates(request: Request):
+    user(request)
+    await check_csrf(request)
+    return RedirectResponse(f"/jobs/{_service(request).check_updates()}", 303)
 
 
 @router.post("/settings/llm-check")

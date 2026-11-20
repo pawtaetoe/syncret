@@ -328,3 +328,30 @@ def test_scan_all(service):
     drain(service)
     result = service.queue.get(job).result
     assert [s["path"] for s in result["skills"]] == ["skills/own/good"]
+
+
+# updating a skill keeps its targets, so a merge source with none stays unshipped
+def test_update_keeps_targets(service, tmp_path):
+    folder = make_skill(tmp_path / "src" / "notes", "notes", "Take notes.")
+    service.add(str(folder), targets=["local", "account"])
+    drain(service)
+    first = _only(service, kind="add")
+    service.approve(first.id, first.base)
+    drain(service)
+    (folder / "SKILL.md").write_text((folder / "SKILL.md").read_text() + "More.\n")
+    service.add(str(folder))
+    drain(service)
+    update = _only(service, kind="update")
+    entry = service.repo.skills(f"proposal/{update.id}")["skills"]["skills/own/notes"]
+    assert entry["targets"] == ["account", "local"]
+
+
+# upstream entries record the ref they were added from
+def test_ref_recorded(service, remote):
+    service.add("https://github.com/acme/skills/tree/main/skills/deploy")
+    service.add("https://github.com/acme/skills", skills=["good"])
+    drain(service)
+    refs = {key: entry["ref"] for p in service.proposals.list()
+            for key, entry in service.repo.skills(f"proposal/{p.id}")["skills"].items()}
+    assert refs == {"skills/upstream/acme/skills/deploy": "main",
+                    "skills/upstream/acme/skills/good": "HEAD"}
