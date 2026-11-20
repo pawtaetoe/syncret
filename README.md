@@ -52,6 +52,7 @@ block  remote-run-bad  tests/fixtures/skills/remote-run-bad
 | `hidden-comment` | warn | markdown comments that speak to the agent, which are hidden when rendered |
 | `broad-description` | warn | a description so short or generic it would trigger on almost anything |
 | `hooks-in-frontmatter` | warn | `hooks` in the frontmatter, which run commands on agent events |
+| `outside-link` | warn | a symlink inside the skill that points outside it; its target is never read |
 
 A skill that fails to load (missing or broken frontmatter) gets a `load-error` warning.
 
@@ -154,7 +155,7 @@ Pin the version with `uvx syncret==0.1.0` if you want the same rules on every ru
 
 ## Safety
 
-`syncret` reads skills as text and never executes, imports or sources them. When a skill comes from a link:
+`syncret` reads skills as text and never executes, imports or sources them. It never follows a symlink out of a skill, so a skill cannot make it read `~/.ssh` or other files on your machine; such links are reported as `outside-link`. A skill folder that is itself a symlink, as in `~/.claude/skills`, works as usual. When a skill comes from a link:
 
 - symlinks in the repo are checked out as plain files, so a link to `~/.ssh` cannot make `syncret` read your keys
 - git hooks, credential prompts and LFS downloads are off, and paths that leave the checkout are refused

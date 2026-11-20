@@ -8,7 +8,7 @@ import pytest
 
 from syncret.cli import main
 from syncret.core import upstream
-from syncret.core.upstream import Upstream
+from syncret.core.upstream import Upstream, UpstreamError
 
 SKILLS = Path(__file__).parent / "fixtures" / "skills"
 
@@ -120,9 +120,18 @@ def test_symlinks_not_followed(remote, tmp_path, capsys):
     assert "TOPSECRET" not in capsys.readouterr().out
 
 
-# a ref git would read as an option is refused before git runs
-def test_option_ref_refused(remote, tmp_path, capsys):
-    marker = tmp_path / "pwned"
-    url = f"https://github.com/acme/skills/tree/--upload-pack=touch {marker}/skills"
+# a link whose ref starts with "-" is refused by the parser, before git runs
+def test_option_ref_link_refused(remote, capsys):
+    url = "https://github.com/acme/skills/tree/--upload-pack=touch${IFS}pwned/skills"
     assert main(["vet", url]) == 2
+    assert "unsupported link" in capsys.readouterr().err
+
+
+# even past the parser, git reads the ref as a ref, so an injected option never runs;
+# without --end-of-options git would run this upload-pack against the local fake upstream
+def test_option_ref_not_run_by_git(remote, tmp_path):
+    marker = tmp_path / "pwned"
+    upstream = Upstream("acme", "skills", ref=f"--upload-pack=touch {marker}")
+    with pytest.raises(UpstreamError):
+        upstream.load()
     assert not marker.exists()

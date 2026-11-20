@@ -1,4 +1,5 @@
 import hashlib
+import os
 import re
 from pathlib import Path
 
@@ -12,6 +13,7 @@ class Skill:
     def __init__(self, path):
         self.path = Path(path)
         self.files = {}
+        self.links = {}
         self.frontmatter = {}
         self.text = ""
         self.body = ""
@@ -30,9 +32,11 @@ class Skill:
         description = self.frontmatter.get("description")
         return description if isinstance(description, str) else ""
 
-    # every file under the skill keyed by relative path, symlinks resolved, loops skipped
+    # every file under the skill keyed by relative path, symlinks resolved, loops skipped;
+    # a symlink that leaves the skill is recorded in links and never read
     def _read_files(self):
         errors = []
+        root = self.path.resolve()
 
         def visit(directory, prefix, ancestors):
             try:
@@ -43,8 +47,10 @@ class Skill:
             for child in children:
                 rel = prefix + child.name
                 try:
-                    if child.is_dir():
-                        real = child.resolve()
+                    real = child.resolve()
+                    if child.is_symlink() and real != root and root not in real.parents:
+                        self.links[rel] = os.readlink(child)
+                    elif child.is_dir():
                         if child.name != ".git" and real not in ancestors:
                             visit(child, rel + "/", ancestors | {real})
                     elif child.is_file():
@@ -52,7 +58,7 @@ class Skill:
                 except OSError as error:
                     errors.append(f"{rel}: {error.strerror}")
 
-        visit(self.path, "", {self.path.resolve()})
+        visit(self.path, "", {root})
         if errors:
             self.error = "unreadable: " + ", ".join(errors)
 
@@ -78,13 +84,15 @@ class Skill:
         if missing:
             self.error = self.error or f"frontmatter has no {' or '.join(missing)}"
 
-    # sha256 over relative paths and contents, so copies and symlinked copies match
+    # sha256 over relative paths, contents and outside link targets, so copies match
     def _hash(self):
         digest = hashlib.sha256()
         for rel in sorted(self.files):
             data = self.files[rel]
             digest.update(f"{rel}\0{len(data)}\0".encode())
             digest.update(data)
+        for rel in sorted(self.links):
+            digest.update(f"{rel}\0link\0{self.links[rel]}\0".encode())
         return digest.hexdigest()
 
 

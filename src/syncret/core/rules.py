@@ -419,6 +419,12 @@ def _hidden_comment(skill, texts):
                 yield rel, number, lines[number - 1]
 
 
+# symlinks that leave the skill; their targets are not read, so they are not vetted
+def _outside_link(skill, texts):
+    for rel, target in sorted(skill.links.items()):
+        yield rel, 1, f"{rel} -> {target}"
+
+
 RULES = [
     Rule("remote-code-run", "block", _remote_run, negatable=True, mentionable=True),
     Rule("unpinned-install", "warn", _unpinned_install),
@@ -432,5 +438,6 @@ RULES = [
     Rule("prompt-injection", "block", _prompt_injection, mentionable=True),
     Rule("hidden-comment", "warn", _hidden_comment),
     Rule("broad-description", "warn", _broad_description),
-    Rule("hooks-in-frontmatter", "warn", _hooks)
+    Rule("hooks-in-frontmatter", "warn", _hooks),
+    Rule("outside-link", "warn", _outside_link)
 ]

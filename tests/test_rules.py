@@ -261,8 +261,10 @@ def test_hidden_comment(tmp_path, files, flagged):
     root = tmp_path / "skill"
     root.mkdir()
     head = f"---\nname: sample\ndescription: {GOOD_DESCRIPTION}\n---\n"
-    (root / "SKILL.md").write_text(head + files.pop("SKILL.md", ""))
+    (root / "SKILL.md").write_text(head + files.get("SKILL.md", ""))
     for rel, content in files.items():
+        if rel == "SKILL.md":
+            continue
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text(content)
     assert _run("hidden-comment", Skill(root)) == (["warn"] if flagged else [])

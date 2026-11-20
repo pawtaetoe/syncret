@@ -77,3 +77,28 @@ def test_name_fallback():
 # an empty folder has no skills
 def test_empty_folder(tmp_path):
     assert find_skills(tmp_path) == []
+
+
+# a symlink leaving the skill is recorded, never read; links inside the skill are read
+def test_outside_links_not_read(tmp_path):
+    secret = tmp_path / "secret.txt"
+    secret.write_text("TOPSECRET\n")
+    (tmp_path / "outside").mkdir()
+    (tmp_path / "outside" / "key").write_text("TOPSECRET\n")
+    shutil.copytree(FIXTURES / "good", tmp_path / "skill")
+    (tmp_path / "skill" / "notes.txt").symlink_to(secret)
+    (tmp_path / "skill" / "refs").symlink_to(tmp_path / "outside")
+    (tmp_path / "skill" / "helper.sh").symlink_to(tmp_path / "skill" / "scripts" / "summarise.sh")
+    skill = Skill(tmp_path / "skill")
+    assert skill.links == {"notes.txt": str(secret), "refs": str(tmp_path / "outside")}
+    assert set(skill.files) == {"SKILL.md", "scripts/summarise.sh", "helper.sh"}
+    assert not any(b"TOPSECRET" in data for data in skill.files.values())
+
+
+# an outside link counts in the hash, so changing its target changes the hash
+def test_outside_link_in_hash(tmp_path):
+    shutil.copytree(FIXTURES / "good", tmp_path / "a")
+    shutil.copytree(FIXTURES / "good", tmp_path / "b")
+    (tmp_path / "a" / "x").symlink_to("/etc/hostname")
+    (tmp_path / "b" / "x").symlink_to("/etc/hosts")
+    assert Skill(tmp_path / "a").hash != Skill(tmp_path / "b").hash
