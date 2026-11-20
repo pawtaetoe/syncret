@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Proposal {{ p.id }}{% endblock %}
+{% block main %}
+<h1>#{{ p.id }} {{ p.title | shown }} <span class="badge">{{ p.state }}</span></h1>
+{% if error %}<p class="error">{{ error | shown }}</p>{% endif %}
+<p>Built on <code>{{ (p.base or '')[:12] }}</code>. Skills: {% for key in p.skills %}<code>{{ key | shown }}</code> {% endfor %}</p>
+
+{% if p.state == "open" %}
+<div class="actions">
+  {% if p.blocked %}
+  <p class="block">Blocked by its vetting report: it cannot be approved.</p>
+  {% else %}
+  <form method="post" action="/proposals/{{ p.id }}/approve" class="inline">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="base" value="{{ p.base }}">
+    <button type="submit">Approve and publish</button>
+  </form>
+  {% endif %}
+  <form method="post" action="/proposals/{{ p.id }}/reject" class="inline">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <button type="submit">Reject</button>
+  </form>
+</div>
+{% elif p.state == "checking" %}
+<p hx-get="/proposals/{{ p.id }}" hx-trigger="every 3s" hx-select="main" hx-target="main" hx-swap="outerHTML">Vetting and scanning...</p>
+{% endif %}
+
+{% if p.notes %}
+<h2>Notes</h2>
+<ul>{% for note in p.notes %}<li>{{ note | shown }}</li>{% endfor %}</ul>
+{% endif %}
+
+<h2>Vetting</h2>
+{% if p.vet is none %}<p>Not vetted yet.</p>{% endif %}
+{% for r in p.vet or [] %}
+<h3><span class="{{ r.verdict }}">{{ r.verdict }}</span> {{ r.name | shown }} <code>{{ r.path | shown }}</code></h3>
+{% if r.findings %}
+<table>
+  <tr><th>Severity</th><th>Rule</th><th>Where</th><th>Line</th></tr>
+  {% for f in r.findings %}
+  <tr><td class="{{ f.severity }}">{{ f.severity }}</td><td>{{ f.rule }}</td><td>{{ f.file | shown }}:{{ f.line }}</td><td><code>{{ f.text | shown }}</code></td></tr>
+  {% endfor %}
+</table>
+{% else %}<p>No findings.</p>{% endif %}
+{% endfor %}
+
+<h2>Scan</h2>
+{% if p.scan is none %}<p>Not scanned yet.</p>
+{% elif p.scan.note %}<p>{{ p.scan.note }}</p>
+{% else %}
+{% for d in p.scan.duplicates %}<p>Exact duplicate: {% for path in d.paths %}<code>{{ path | shown }}</code> {% endfor %}</p>{% endfor %}
+{% for c in p.scan.collisions %}<p>Name collision <code>{{ c.name | shown }}</code>: {% for path in c.paths %}<code>{{ path | shown }}</code> {% endfor %}</p>{% endfor %}
+{% for o in p.scan.overlaps %}
+<p><span class="badge">{{ o.label }}</span> {{ '%.2f' % o.score }} {% for path in o.paths %}<code>{{ path | shown }}</code> {% endfor %}</p>
+{% if o.summary %}<p>{{ o.summary | shown }}</p>{% endif %}
+{% for d in o.disagreements %}
+<pre>A {{ d.a.file | shown }}:{{ d.a.line }}  {{ d.a.text | shown }}
+B {{ d.b.file | shown }}:{{ d.b.line }}  {{ d.b.text | shown }}
+  {{ d.note | shown }}</pre>
+{% endfor %}
+{% endfor %}
+{% if not (p.scan.duplicates or p.scan.collisions or p.scan.overlaps) %}<p>No duplicates, collisions or overlaps with published skills.</p>{% endif %}
+{% endif %}
+
+<h2>Diff</h2>
+{% if diff %}<pre class="diff">{{ diff | shown }}</pre>{% else %}<p>No diff to show.</p>{% endif %}
+{% endblock %}

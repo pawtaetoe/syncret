@@ -1,0 +1,10 @@
+{% for p in rows %}
+<tr>
+  <td><a href="/proposals/{{ p.id }}">#{{ p.id }}</a></td>
+  <td>{{ p.kind }}</td>
+  <td>{{ p.title | shown }}</td>
+  <td><span class="badge">{{ p.state }}</span></td>
+  <td>{% if p.vet is not none %}{% for r in p.vet %}<span class="{{ r.verdict }}">{{ r.verdict }}</span> {% endfor %}{% endif %}</td>
+  <td>{{ p.updated }}</td>
+</tr>
+{% endfor %}

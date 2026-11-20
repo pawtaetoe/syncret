@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block main %}
+<h1>Settings</h1>
+{% if message %}<p class="pass">{{ message | shown }}</p>{% endif %}
+{% if error %}<p class="error">{{ error | shown }}</p>{% endif %}
+
+<h2>Intervals</h2>
+<form method="post" action="/settings/intervals">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>Check upstream skills for updates every
+    <input type="number" name="check_interval_hours" min="1" max="168" value="{{ settings.check_interval_hours }}"> hours</label>
+  <label>Clients sync every
+    <input type="number" name="sync_interval_minutes" min="5" max="1440" value="{{ settings.sync_interval_minutes }}"> minutes</label>
+  <button type="submit">Save intervals</button>
+</form>
+
+<h2>Claude Code token</h2>
+{% if token %}
+<p class="{{ 'warn' if token.warn else 'pass' }}">Saved {{ token.saved }} ({{ token.days }} days ago).
+{% if token.expires_in > 0 %}It ends in about {{ token.expires_in }} days.{% else %}It has probably ended.{% endif %}
+{% if token.warn %}Make a new one with <code>claude setup-token</code> and save it here.{% endif %}</p>
+{% else %}
+<p>No token saved. The <code>claude-code</code> provider needs one: run <code>claude setup-token</code>
+on any machine with a browser and paste the token here. It lasts a year.</p>
+{% endif %}
+<form method="post" action="/settings/token">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>Token <input type="password" name="token" autocomplete="off" size="60" required></label>
+  <button type="submit">Save token</button>
+</form>
+
+<h2>MCP</h2>
+<p>Agents reach syncret at <code>/mcp</code> (Streamable HTTP) with <code>Authorization: Bearer &lt;token&gt;</code>.
+{% if mcp_set %}A token is set.{% else %}No token yet, so MCP is closed.{% endif %}
+Behind a reverse proxy, list its hostname in <code>SYNCRET_ALLOWED_HOSTS</code>.</p>
+{% if mcp_token %}
+<div class="warn"><p>Copy the new MCP token now: it is not shown again.</p><pre>{{ mcp_token }}</pre></div>
+{% endif %}
+<form method="post" action="/settings/mcp-token">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button type="submit">{{ 'Replace' if mcp_set else 'Make' }} MCP token</button>
+</form>
+
+<h2>LLM providers</h2>
+{% if llm_error %}<p class="error">{{ llm_error | shown }}</p>{% endif %}
+{% if providers %}
+<table>
+  <tr><th>Provider</th><th>Type</th><th>Model</th><th>Own skills</th></tr>
+  {% for p in providers %}
+  <tr><td>{{ p.name | shown }}</td><td>{{ p.__class__.__name__ }}</td><td>{{ (p.model or 'default') | shown }}</td>
+      <td>{{ 'may see them' if p.can_see_own else 'never sent' }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}<p>No providers yet: LLM review, overlap labels and merges are off.</p>{% endif %}
+<form method="post" action="/settings/llm-check" class="inline">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <button type="submit">Run LLM check</button>
+</form>
+{% if check %}<a href="/jobs/{{ check.id }}">last check: {{ check.state }}</a>{% endif %}
+<p>Providers are tried in order. The format is the same as the CLI's <code>llm.toml</code>; keys only ever go in environment variables.</p>
+<form method="post" action="/settings/llm">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <textarea name="llm" rows="16" cols="90" spellcheck="false">{{ llm_text }}</textarea>
+  <p><button type="submit">Save providers</button></p>
+</form>
+{% endblock %}

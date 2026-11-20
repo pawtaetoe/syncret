@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Jobs{% endblock %}
+{% block main %}
+<div id="jobs"{% if busy %} hx-get="/jobs" hx-trigger="every 2s" hx-select="#jobs" hx-swap="outerHTML"{% endif %}>
+<h1>Jobs</h1>
+<table>
+  <tr><th>#</th><th>Kind</th><th>State</th><th>Attempts</th><th>Created</th><th>Finished</th></tr>
+  {% for j in jobs %}
+  <tr><td><a href="/jobs/{{ j.id }}">{{ j.id }}</a></td><td>{{ j.kind }}</td><td><span class="badge">{{ j.state }}</span></td>
+      <td>{{ j.attempts }}/{{ j.max_attempts }}</td><td>{{ j.created }}</td><td>{{ j.finished or '' }}</td></tr>
+  {% else %}<tr><td colspan="6">No jobs yet.</td></tr>{% endfor %}
+</table>
+</div>
+{% endblock %}

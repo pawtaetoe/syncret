@@ -1,0 +1,26 @@
+services:
+  syncret:
+    build: .
+    image: syncret:local
+    restart: unless-stopped
+    # published on localhost only by default; put your reverse proxy or tunnel in front
+    ports:
+      - "${SYNCRET_BIND:-127.0.0.1}:${SYNCRET_PORT:-8080}:8080"
+    volumes:
+      - syncret-data:/data
+    environment:
+      # 1 when your proxy serves https, so the session cookie is marked Secure
+      SYNCRET_HTTPS: ${SYNCRET_HTTPS:-0}
+      # your proxy's hostname, so the MCP endpoint answers to it
+      SYNCRET_ALLOWED_HOSTS: ${SYNCRET_ALLOWED_HOSTS:-}
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /home/app/.claude:uid=1000,gid=1000,mode=0700
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  syncret-data:
