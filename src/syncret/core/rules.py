@@ -93,9 +93,12 @@ def _key_line(texts, key):
     return number, lines[number - 1] if lines else ""
 
 
-# true when a negation comes before start in the same clause
+# true when a negation comes before start in the same clause, or a short warning label
+# such as never do or avoid heads that clause before a colon
 def _negated_before(line, start):
-    return bool(_NEGATION.search(re.split(r"[.!?;:]", line[:start])[-1]))
+    *labels, clause = re.split(r"[.!?;]", line[:start])[-1].split(":")
+    label = labels[-1] if labels else ""
+    return bool(_NEGATION.search(clause) or (len(label.split()) <= 4 and _WARNING.search(label)))
 
 
 # frontmatter hooks run commands on agent events, outside the skill's own instructions
@@ -359,10 +362,11 @@ _WITHOUT_ASKING = re.compile(
 
 
 # acting without asking: weaker than tampering, since docs on agent autonomy say it too
+# a list item under a warning lead-in such as red flags describes it, so it is left out
 def _without_asking(skill, texts):
     for rel, lines in texts.items():
         for number, line in enumerate(lines, 1):
-            if _said(line, _WITHOUT_ASKING, negatable=True):
+            if _said(line, _WITHOUT_ASKING, negatable=True) and not _mention(rel, lines, number):
                 yield rel, number, line
 
 
