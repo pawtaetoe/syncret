@@ -6,6 +6,7 @@ from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 
+from syncret.core.llm import PROVIDERS, Llm, LlmError, default_config_path
 from syncret.core.scan import scan
 from syncret.core.skill import find_skills
 from syncret.core.upstream import Upstream, UpstreamError
@@ -32,6 +33,13 @@ def _parser():
     scan.add_argument("dirs", nargs="+", help="one or more skill folders")
     scan.add_argument("--json", action="store_true", help="print the report as JSON")
     scan.add_argument("--no-llm", action="store_true", help="run only checks that need no model")
+
+    llm = commands.add_parser("llm", help="check the configured LLM providers")
+    llm_commands = llm.add_subparsers(dest="llm_command", required=True)
+    check = llm_commands.add_parser(
+        "check", help="ask each provider a test question that holds no skill content"
+    )
+    check.add_argument("--config", help=f"config file (default {default_config_path()})")
     return parser
 
 
@@ -134,7 +142,32 @@ def _scan(args):
     return 1 if report.verdict == "block" else 0
 
 
+# one line per provider: works or not, its type and model, and whether it may see own skills;
+# exit 0 if any works, 1 if none do, 2 without a config
+def _llm_check(args):
+    try:
+        chain = Llm.load(args.config)
+    except LlmError as error:
+        print(f"syncret: {error}", file=sys.stderr)
+        return 2
+    if chain is None:
+        print(f"syncret: no LLM configured ({args.config or default_config_path()})",
+              file=sys.stderr)
+        return 2
+    kinds = {cls: kind for kind, cls in PROVIDERS.items()}
+    working = 0
+    for provider, error in chain.check():
+        working += error is None
+        model = getattr(provider, "model", "") or "default model"
+        own = "may see own skills" if provider.can_see_own else "upstream skills only"
+        status = "ok" if error is None else "fail"
+        print(f"{status:<5} {provider.name}  {kinds[type(provider)]}, {model}, {own}")
+        if error:
+            print(f"      {_shown(error)}")
+    return 0 if working else 1
+
+
 # entry point, returns the process exit code
 def main(argv=None):
     args = _parser().parse_args(argv)
-    return _vet(args) if args.command == "vet" else _scan(args)
+    return {"vet": _vet, "scan": _scan, "llm": _llm_check}[args.command](args)

@@ -101,6 +101,106 @@ uv run syncret vet tests/fixtures/skills/remote-run-bad
 uv run syncret scan tests/fixtures/scan-a tests/fixtures/scan-b --no-llm
 ```
 
+## LLM providers (optional)
+
+`vet` and `scan` work without any model. An LLM adds the checks patterns can't do: labelling overlaps as duplicate, overlapping, conflicting or independent, reviewing a skill's full content, and building merged skills. Those checks are in progress; this section sets up the providers they use.
+
+Providers live in `~/.config/syncret/config.toml` (or pass `--config`). They are tried in order until one answers:
+
+```toml
+[providers.claude]
+type = "claude-code"     # runs `claude -p` on your Claude plan, with no tools
+can_see_own = true       # may receive your own skills (default false)
+
+[providers.opus]
+type = "anthropic"       # needs `pip install "syncret[anthropic]"`
+model = "claude-opus-5-5"
+api_key_env = "ANTHROPIC_API_KEY"   # optional; otherwise the SDK's usual lookup, such as `ant auth login`
+can_see_own = true
+fallbacks = true         # server-side refusal fallbacks
+
+[jobs]                   # optional: providers per job, in order
+review = ["claude", "opus"]
+merge = ["opus", "claude"]
+```
+
+- **Own skills stay private by default.** Local skills count as your own. They are only sent to a provider whose `can_see_own` is `true`. If none is allowed, that step is skipped, never sent anyway.
+- **No secrets in the file.** API providers name the environment variable that holds their key.
+- **Rate limits and failures** are retried, then the next provider is tried.
+
+Check the setup with one tiny request per provider. It sends no skill content:
+
+```bash
+syncret llm check
+```
+
+```text
+ok    claude  claude-code, default model, may see own skills
+```
+
+### Claude Code provider
+
+The `claude-code` provider needs the Claude Code CLI on your `PATH`. Install it with the [native installer](https://code.claude.com/docs/en/setup), then log in once by running `claude`:
+
+```bash
+curl -fsSL https://claude.ai/install.sh | bash
+claude --version
+```
+
+The installer puts `claude` in `~/.local/bin`. On many Linux systems `~/.profile` adds that folder to `PATH` at login only if it already exists, so after a first install either log in again or run `export PATH="$HOME/.local/bin:$PATH"`.
+
+syncret runs it as `claude -p --output-format json --json-schema <schema> --tools "" --strict-mcp-config --no-session-persistence`, with the skill on stdin. No tools and no MCP servers means a skill under review can't make it act. If `claude` is not on your `PATH`, set `command = "/full/path/to/claude"` on the provider.
+
+### Sharing the CLI with your editor
+
+Zed's agent panel and the VS Code extension each run their own bundled copy of Claude Code. You can point both at the CLI you installed, so your editor and syncret run one binary, updated in one place. Login, settings and skills in `~/.claude` are shared either way, and usage counts against the same Claude plan.
+
+In both editors, use the full path to `claude`. With remote development (Zed remote projects, VS Code Remote-SSH), give the path on the remote machine, where the agent runs. The change applies to agents started after it; restart the editor, or reconnect to the remote.
+
+#### Zed
+
+Add this to Zed's `settings.json`:
+
+```json
+{
+  "agent_servers": {
+    "claude-acp": {
+      "type": "registry",
+      "env": { "CLAUDE_CODE_EXECUTABLE": "/home/<you>/.local/bin/claude" }
+    }
+  }
+}
+```
+
+`type` is required: `"registry"` is for agents installed from Zed's agent registry, which take `env` but no `command`. Zed's Claude adapter runs whatever `CLAUDE_CODE_EXECUTABLE` names instead of its bundled copy.
+
+#### VS Code
+
+The Claude Code extension has no environment variable for this. Its `claudeCode.claudeProcessWrapper` setting names the program that launches Claude, and the extension passes its bundled binary's path to that program as an argument. Point the setting at a small wrapper that skips that path and runs your CLI:
+
+```bash
+mkdir -p ~/.local/bin
+cat > ~/.local/bin/claude-vscode <<'EOF'
+#!/bin/sh
+# VS Code passes its bundled claude first; skip it and run the installed CLI
+case "$1" in
+  */claude|*/claude.exe) shift ;;
+esac
+exec "$HOME/.local/bin/claude" "$@"
+EOF
+chmod +x ~/.local/bin/claude-vscode
+```
+
+Then in VS Code's `settings.json` (on the remote, for Remote-SSH):
+
+```json
+{
+  "claudeCode.claudeProcessWrapper": "/home/<you>/.local/bin/claude-vscode"
+}
+```
+
+Per the extension's docs, setting a wrapper also skips the "conversation still open elsewhere" check, turns off plan-mode restore on resume, and lists `claude -p` sessions alongside the extension's own. This setup follows the extension's documentation and has not been tested by syncret itself. On Windows, use a `.cmd` wrapper with the same logic.
+
 ## Exit codes
 
 | Code | Meaning |
