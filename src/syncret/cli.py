@@ -18,7 +18,7 @@ _WIDTH = 120
 def _parser():
     parser = argparse.ArgumentParser(
         prog="syncret",
-        description="Vet agent skills and find duplicates and conflicts between them"
+        description="Vet agent skills for risky content and find duplicates and overlaps"
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -26,7 +26,9 @@ def _parser():
     vet.add_argument("path", help="a skill, a folder of skills, or a link")
     vet.add_argument("--json", action="store_true", help="print the report as JSON")
 
-    scan = commands.add_parser("scan", help="find duplicates and conflicts across skill folders")
+    scan = commands.add_parser(
+        "scan", help="vet skill folders and find duplicates, name collisions and overlaps"
+    )
     scan.add_argument("dirs", nargs="+", help="one or more skill folders")
     scan.add_argument("--json", action="store_true", help="print the report as JSON")
     scan.add_argument("--no-llm", action="store_true", help="run only checks that need no model")
