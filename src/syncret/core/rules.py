@@ -243,7 +243,11 @@ _CREDENTIALS = re.compile(
     r"|\bid_(?:rsa|dsa|ecdsa|ed25519)\b"
     r"|\bsecurity\s+(?:find-(?:generic|internet)-password|dump-keychain)\b"
     r"|Library/Keychains|\.keychain(?:-db)?\b|\bsecret-tool\s+lookup\b|\bkeyring\.get_password\b"
-    r"|Google[\\/]+Chrome|google-chrome|chromium[\\/]|BraveSoftware|Microsoft[\\/]+Edge"
+    # browser profile folders but not the program folders holding the browser
+    r"|(?<!opt[\\/])Google[\\/]+Chrome(?![\\/]+Application\b)|\.config[\\/]+google-chrome\b"
+    r"|google-chrome[\\/]|chromium[\\/]"
+    r"|BraveSoftware(?![\\/]+Brave-Browser[\\/]+Application\b)"
+    r"|Microsoft[\\/]+Edge(?![\\/]+Application\b)"
     r"|\.mozilla[\\/]firefox|Firefox[\\/]+Profiles|\bLogin Data\b|cookies\.sqlite|logins\.json"
     r"|\bkey4\.db\b",
     re.I
