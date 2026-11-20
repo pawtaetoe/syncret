@@ -3,12 +3,16 @@
 {% block main %}
 <div id="jobs"{% if busy %} hx-get="/jobs" hx-trigger="every 2s" hx-select="#jobs" hx-swap="outerHTML"{% endif %}>
 <h1>Jobs</h1>
+<div class="card table-card">
 <table>
-  <tr><th>#</th><th>Kind</th><th>State</th><th>Attempts</th><th>Created</th><th>Finished</th></tr>
+  <thead><tr><th>#</th><th>Kind</th><th>State</th><th>Attempts</th><th>Created</th><th>Finished</th></tr></thead>
+  <tbody>
   {% for j in jobs %}
-  <tr><td><a href="/jobs/{{ j.id }}">{{ j.id }}</a></td><td>{{ j.kind }}</td><td><span class="badge">{{ j.state }}</span></td>
-      <td>{{ j.attempts }}/{{ j.max_attempts }}</td><td>{{ j.created }}</td><td>{{ j.finished or '' }}</td></tr>
-  {% else %}<tr><td colspan="6">No jobs yet.</td></tr>{% endfor %}
+  <tr><td class="num"><a href="/jobs/{{ j.id }}">{{ j.id }}</a></td><td>{{ j.kind }}</td><td><span class="badge {{ j.state }}">{{ j.state }}</span></td>
+      <td class="num">{{ j.attempts }}/{{ j.max_attempts }}</td><td class="num muted">{{ j.created | when }}</td><td class="num muted">{{ j.finished | when }}</td></tr>
+  {% else %}<tr><td colspan="6" class="empty">No jobs yet.</td></tr>{% endfor %}
+  </tbody>
 </table>
+</div>
 </div>
 {% endblock %}

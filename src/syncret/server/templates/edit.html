@@ -2,12 +2,13 @@
 {% block title %}Edit{% endblock %}
 {% block main %}
 <h1>Edit <code>{{ key | shown }}</code></h1>
-{% if error %}<p class="error">{{ error | shown }}</p>{% endif %}
-<p>Saving opens a proposal; nothing changes until you approve it.</p>
-<form method="post" action="/skills/edit">
+{% if error %}<p class="notice bad" role="alert">{{ error | shown }}</p>{% endif %}
+<p class="muted">Saving opens a proposal; nothing changes until you approve it.</p>
+<form method="post" action="/skills/edit" class="card">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <input type="hidden" name="key" value="{{ key }}">
-  <textarea name="content" rows="30" cols="100">{{ content }}</textarea>
-  <p><button type="submit">Propose this edit</button></p>
+  <label for="content">SKILL.md</label>
+  <textarea id="content" name="content" rows="30" spellcheck="false" class="wide">{{ content }}</textarea>
+  <div class="form-actions"><button type="submit" class="primary">Propose this edit</button></div>
 </form>
 {% endblock %}

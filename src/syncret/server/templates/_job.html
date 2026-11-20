@@ -1,20 +1,28 @@
 <div id="job"{% if job.state in ('queued', 'running') %} hx-get="/jobs/{{ job.id }}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
-<h1>Job {{ job.id }}: {{ job.kind }} <span class="badge">{{ job.state }}</span></h1>
-<p>Attempt {{ job.attempts }} of {{ job.max_attempts }}. Created {{ job.created }}{% if job.finished %}, finished {{ job.finished }}{% endif %}.</p>
-{% if job.error %}<p class="error">{{ job.error | shown }}</p>{% endif %}
+<div class="page-head">
+  <h1>Job {{ job.id }}: {{ job.kind }}</h1>
+  <span class="badge {{ job.state }}">{{ job.state }}</span>
+</div>
+<div class="meta">
+  <span>Attempt <span class="num">{{ job.attempts }} of {{ job.max_attempts }}</span></span>
+  <span>Created <span class="num">{{ job.created | when }}</span></span>
+  {% if job.finished %}<span>Finished <span class="num">{{ job.finished | when }}</span></span>{% endif %}
+</div>
+{% if job.error %}<p class="notice bad" role="alert">{{ job.error | shown }}</p>{% endif %}
 {% if job.result %}
   {% if job.result.choose %}
-  <form method="post" action="/add">
+  <form method="post" action="/add" class="card">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="source" value="{{ job.args.source }}">
     {% for t in job.args.targets %}<input type="hidden" name="targets" value="{{ t }}">{% endfor %}
     <p>That link holds several skills. Pick the ones to add:</p>
-    {% for name in job.result.choose %}<label><input type="checkbox" name="skills" value="{{ name }}"> {{ name | shown }}</label>{% endfor %}
-    <button type="submit">Add these</button>
+    {% for name in job.result.choose %}<label class="check"><input type="checkbox" name="skills" value="{{ name }}"> {{ name | shown }}</label>{% endfor %}
+    <div class="form-actions"><button type="submit" class="primary">Add these</button></div>
   </form>
   {% endif %}
-  {% for pid in job.result.proposals or [] %}<p><a href="/proposals/{{ pid }}">Proposal {{ pid }}</a></p>{% endfor %}
-  {% if job.result.proposal %}<p><a href="/proposals/{{ job.result.proposal }}">Proposal {{ job.result.proposal }}</a></p>{% endif %}
+  {% for pid in job.result.proposals or [] %}<p><a class="btn" href="/proposals/{{ pid }}">Proposal {{ pid }}</a></p>{% endfor %}
+  {% if job.result.proposal %}<p><a class="btn" href="/proposals/{{ job.result.proposal }}">Proposal {{ job.result.proposal }}</a></p>{% endif %}
+  <h2>Result</h2>
   <pre>{{ job.result | tojson(indent=2) | shown }}</pre>
 {% endif %}
 {% if job.log %}<h2>Log</h2><pre>{{ job.log | shown }}</pre>{% endif %}

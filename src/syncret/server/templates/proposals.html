@@ -2,21 +2,29 @@
 {% block title %}Proposals{% endblock %}
 {% block main %}
 <div id="list"{% if busy %} hx-get="/proposals" hx-trigger="every 3s" hx-select="#list" hx-swap="outerHTML"{% endif %}>
-<h1>Proposals</h1>
+<div class="page-head">
+  <h1>Proposals</h1>
+  <a class="btn primary" href="/add">Add a skill</a>
+</div>
+<h2>Waiting for you</h2>
 {% if waiting %}
+<div class="card table-card">
 <table>
-  <tr><th>#</th><th>Kind</th><th>Change</th><th>State</th><th>Vet</th><th>Updated</th></tr>
-  {% with rows = waiting %}{% include "_proposal_rows.html" %}{% endwith %}
+  <thead><tr><th>#</th><th>Kind</th><th>Change</th><th>State</th><th>Vet</th><th>Updated</th></tr></thead>
+  <tbody>{% with rows = waiting %}{% include "_proposal_rows.html" %}{% endwith %}</tbody>
 </table>
+</div>
 {% else %}
-<p>Nothing waiting. <a href="/add">Add a skill</a>.</p>
+<div class="card empty">Nothing waiting. <a href="/add">Add a skill</a> to start one.</div>
 {% endif %}
 {% if done %}
 <h2>Earlier</h2>
+<div class="card table-card">
 <table>
-  <tr><th>#</th><th>Kind</th><th>Change</th><th>State</th><th>Vet</th><th>Updated</th></tr>
-  {% with rows = done %}{% include "_proposal_rows.html" %}{% endwith %}
+  <thead><tr><th>#</th><th>Kind</th><th>Change</th><th>State</th><th>Vet</th><th>Updated</th></tr></thead>
+  <tbody>{% with rows = done %}{% include "_proposal_rows.html" %}{% endwith %}</tbody>
 </table>
+</div>
 {% endif %}
 </div>
 {% endblock %}

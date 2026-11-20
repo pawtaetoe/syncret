@@ -2,25 +2,29 @@
 {% block title %}Claude account{% endblock %}
 {% block main %}
 <h1>Claude account skills</h1>
-<p>The Claude apps take skills only as a zip upload in their settings. Download each skill marked
+<p class="muted">The Claude apps take skills only as a zip upload in their settings. Download each skill marked
 out of date, upload it, then tick it as done. Claude Code also loads these when signed in to the
 same account, so skills targeted at both are not linked into <code>~/.claude/skills</code>.</p>
-{% if not skills %}<p>No published skill targets the Claude account.</p>{% else %}
+{% if not skills %}<div class="card empty">No published skill targets the Claude account.</div>{% else %}
+<div class="card table-card">
 <table>
-  <tr><th>Skill</th><th>Status</th><th></th></tr>
+  <thead><tr><th>Skill</th><th>Status</th><th><span class="muted">Actions</span></th></tr></thead>
+  <tbody>
   {% for s in skills %}
   <tr>
-    <td>{{ s.entry.name | shown }}<br><code>{{ s.key | shown }}</code></td>
-    <td>{% if s.current %}<span class="pass">uploaded {{ s.upload.uploaded }}</span>{% else %}<span class="warn">out of date</span>{% endif %}</td>
-    <td><a href="/account/zip?key={{ s.key | urlencode }}">Download zip</a>
+    <td><strong>{{ s.entry.name | shown }}</strong><br><code class="muted">{{ s.key | shown }}</code></td>
+    <td>{% if s.current %}<span class="badge pass">uploaded</span> <span class="num muted">{{ s.upload.uploaded | when }}</span>{% else %}<span class="badge warn">out of date</span>{% endif %}</td>
+    <td><div class="actions"><a class="btn small" href="/account/zip?key={{ s.key | urlencode }}">Download zip</a>
       {% if not s.current %}
       <form method="post" action="/account/done" class="inline">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <input type="hidden" name="key" value="{{ s.key }}">
-        <button type="submit">Uploaded</button>
-      </form>{% endif %}</td>
+        <button type="submit" class="small">Uploaded</button>
+      </form>{% endif %}</div></td>
   </tr>
   {% endfor %}
+  </tbody>
 </table>
+</div>
 {% endif %}
 {% endblock %}

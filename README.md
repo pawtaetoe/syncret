@@ -377,6 +377,29 @@ It only ever changes or removes links it made. Your own skill folders, links to 
 
 The config (server URL and machine token) lives in `~/.config/syncret/client.env` (Windows: `%APPDATA%\syncret\client.env`), readable only by you. Run `syncret-sync --force` (Windows: `sync.ps1 -Force`) to sync now. `install.sh --uninstall` (Windows: `install.ps1 -Uninstall`) removes the timer and script and leaves your skills on the last release.
 
+On a Linux server or any machine you are often logged out of, let the user timer run without a session:
+
+```bash
+sudo loginctl enable-linger $USER
+```
+
+### Moving existing skills into syncret
+
+If a machine already has skills in `~/.agents/skills` (for example from `npx skills add`), the client will not replace that folder. Move the skills into syncret first:
+
+1. Add each skill on the dashboard's Add page, by its GitHub or skills.sh link if it has one (so syncret tracks upstream updates), or else as a folder on the server. For a server in a container, copy the folder in first, for example `tar -C ~/.agents -cf - skills | docker compose exec -T syncret sh -c 'mkdir -p /tmp/import && tar -x -C /tmp/import'`, then add `/tmp/import/skills/<name>`.
+2. Approve the proposals. Approving one makes the others stale; each is rebuilt on the new main, so approve them one at a time.
+3. A blocked skill cannot be published. To keep using it on this machine, copy it as a real folder into `~/.claude/skills` (or `~/.copilot/skills`). The client never touches real folders.
+4. Move the old folder aside and remove the links that pointed into it, then install the client:
+
+```bash
+mv ~/.agents/skills ~/.agents/skills.before-syncret
+find ~/.claude/skills ~/.copilot/skills -maxdepth 1 -type l -lname "$HOME/.agents/skills/*" -delete 2>/dev/null
+~/path/to/syncret/client/install.sh --url https://syncret.example.com
+```
+
+Run `install.sh` by its path inside the cloned repo; it is not on your `PATH` until it has installed `syncret-sync`. Once the synced skills show up, delete `~/.agents/skills.before-syncret`.
+
 
 ## Exit codes
 

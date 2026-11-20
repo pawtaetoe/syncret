@@ -3,32 +3,35 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}syncret{% endblock %} - syncret</title>
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#f6f7f9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0f1115" media="(prefers-color-scheme: dark)">
   <meta name="htmx-config" content='{"includeIndicatorStyles": false}'>
+  <title>{% block title %}syncret{% endblock %} - syncret</title>
   <link rel="stylesheet" href="/static/syncret.css">
   <script src="/static/htmx.min.js" defer></script>
+  <script src="/static/syncret.js" defer></script>
 </head>
 <body hx-headers='{"X-CSRF-Token": "{{ csrf }}"}'>
-  <header>
-    <strong>syncret</strong>
-    {% if logged_in %}
-    <nav>
-      <a href="/proposals">Proposals</a>
-      <a href="/add">Add</a>
-      <a href="/skills">Skills</a>
-      <a href="/scan">Scan</a>
-      <a href="/jobs">Jobs</a>
-      <a href="/machines">Machines</a>
-      <a href="/account">Claude account</a>
-      <a href="/settings">Settings</a>
-    </nav>
-    <form method="post" action="/logout" class="inline">
-      <input type="hidden" name="csrf" value="{{ csrf }}">
-      <button type="submit">Log out</button>
-    </form>
-    {% endif %}
+  <a class="skip" href="#main">Skip to content</a>
+  {% if logged_in %}
+  {% set path = request.url.path %}
+  <header class="top">
+    <div class="top-inner">
+      <a class="brand" href="/proposals"><span class="mark" aria-hidden="true">s</span>syncret</a>
+      <nav aria-label="Main">
+        {% for href, label in [("/proposals", "Proposals"), ("/add", "Add"), ("/skills", "Skills"), ("/scan", "Scan"), ("/jobs", "Jobs"), ("/machines", "Machines"), ("/account", "Claude account"), ("/settings", "Settings")] %}
+        <a href="{{ href }}"{% if path == href or path.startswith(href ~ "/") %} aria-current="page"{% endif %}>{{ label }}</a>
+        {% endfor %}
+      </nav>
+      <form method="post" action="/logout" class="inline logout">
+        <input type="hidden" name="csrf" value="{{ csrf }}">
+        <button type="submit" class="small">Log out</button>
+      </form>
+    </div>
   </header>
-  <main>
+  {% endif %}
+  <main id="main">
   {% block main %}{% endblock %}
   </main>
 </body>

@@ -90,6 +90,8 @@ def _parser():
         "check", help="ask each provider a test question that holds no skill content"
     )
     check.add_argument("--config", help=f"config file (default {default_config_path()})")
+    check.add_argument("--data", help="check a server's providers, with its saved Claude token "
+                                      "(default $SYNCRET_DATA when set)")
     return parser
 
 
@@ -366,17 +368,27 @@ def _set_claude_token(args):
     return 0
 
 
+# the providers to check and where they came from: --config, else the server's own providers
+# (with its saved claude token) when run beside a server data folder, else the user config
+def _check_chain(args):
+    data = args.data or os.environ.get("SYNCRET_DATA")
+    if args.config is None and data and (Path(data) / "llm.toml").is_file():
+        from syncret.server.service import Service
+
+        return Service(data).llm(), f"server providers in {data}"
+    return Llm.load(args.config), args.config or default_config_path()
+
+
 # one line per provider: works or not, its type and model, and whether it may see own skills;
 # exit 0 if any works, 1 if none do, 2 without a config
 def _llm_check(args):
     try:
-        chain = Llm.load(args.config)
+        chain, where = _check_chain(args)
     except LlmError as error:
         print(f"syncret: {error}", file=sys.stderr)
         return 2
     if chain is None:
-        print(f"syncret: no LLM configured ({args.config or default_config_path()})",
-              file=sys.stderr)
+        print(f"syncret: no LLM configured ({where})", file=sys.stderr)
         return 2
     kinds = {cls: kind for kind, cls in PROVIDERS.items()}
     working = 0

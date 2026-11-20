@@ -181,3 +181,39 @@ def test_cli_set_claude_token(tmp_path, monkeypatch, capsys):
     assert Settings(tmp_path).token_info()["days"] == 0
     assert TOKEN not in capsys.readouterr().out
     assert main(["set-claude-token", "--data", str(tmp_path)]) == 2
+
+
+# llm check beside a server data folder checks the server's providers with its saved token
+def test_cli_llm_check_server_providers(tmp_path, monkeypatch, capsys):
+    from syncret.cli import main
+
+    service = Service(tmp_path / "data")
+    service.settings.save_token(TOKEN)
+    service.settings.save_llm('[providers.claude]\ntype = "claude-code"\ncan_see_own = true\n')
+    seen = []
+
+    def run(argv, **kwargs):
+        seen.append((kwargs["env"] or {}).get("CLAUDE_CODE_OAUTH_TOKEN"))
+        reply = {"is_error": False, "structured_output": {"ok": True}}
+        return subprocess.CompletedProcess(argv, 0, json.dumps(reply), "")
+
+    monkeypatch.setattr(llm_module.shutil, "which", lambda name: f"/bin/{name}")
+    monkeypatch.setattr(llm_module.subprocess, "run", run)
+    assert main(["llm", "check", "--data", str(tmp_path / "data")]) == 0
+    assert "ok    claude" in capsys.readouterr().out
+    monkeypatch.setenv("SYNCRET_DATA", str(tmp_path / "data"))
+    assert main(["llm", "check"]) == 0
+    assert seen == [TOKEN, TOKEN]
+    user = tmp_path / "user.toml"
+    user.write_text('[providers.mine]\ntype = "claude-code"\n')
+    assert main(["llm", "check", "--config", str(user)]) == 0
+    assert "ok    mine" in capsys.readouterr().out
+    assert seen == [TOKEN, TOKEN, None]
+
+
+# a data folder without providers falls back to the user's own config
+def test_cli_llm_check_no_server_providers(tmp_path, capsys):
+    from syncret.cli import main
+
+    assert main(["llm", "check", "--data", str(tmp_path / "empty")]) == 2
+    assert "no LLM configured" in capsys.readouterr().err
