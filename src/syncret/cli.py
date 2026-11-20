@@ -295,13 +295,17 @@ def _merge(args):
     report = vet(Skill(merged.out))
     if args.json:
         print(json.dumps({"out": str(merged.out), "provider": merged.provider,
-                          "dropped": merged.dropped, "vet": report.to_dict()}, indent=2))
+                          "dropped": merged.dropped, "untraced": merged.untraced,
+                          "vet": report.to_dict()}, indent=2))
     else:
         print(f"merged {len(sources)} skills into {_shown(merged.out)} (by {merged.provider})")
         print(f"dropped with a reason: {len(merged.dropped)}")
         for d in merged.dropped:
             print(f"  {_shown(d['source'])}: {_shown(d['rule'])}")
             print(f"    {_shown(d['reason'])}")
+        print(f"in no source, check these: {len(merged.untraced)}")
+        for u in merged.untraced:
+            print(f"  SKILL.md:{u['line']}  {_shown(u['text'])[:_WIDTH]}")
         _print_reports([report])
     return 1 if report.verdict == "block" else 0
 

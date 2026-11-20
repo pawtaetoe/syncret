@@ -255,3 +255,34 @@ def test_link_source(tmp_path, sources, monkeypatch, capsys):
     assert main(["merge", sources[0].origin, "https://github.com/acme/skills", "--name", "x",
                  "--out", str(tmp_path / "x"), "--config", config]) == 2
     assert "link to exactly one" in capsys.readouterr().err
+
+
+# merged sentences found in no source are listed for review; rewritten paths still trace
+def test_untraced(tmp_path):
+    a = _skill(tmp_path / "git", "git", ["- Never commit secrets.",
+                                         "- Run `scripts/check.sh` before every push."],
+               {"scripts/check.sh": "#!/bin/sh\n"})
+    b = _skill(tmp_path / "deploy", "deploy", ["- Always push the tag before deploying."], {})
+    body = ("# Ship\n\n- Never commit secrets.\n"
+            "- Run `sources/git/scripts/check.sh` before every push.\n"
+            "- Always push the tag before deploying. Pushing a tag is a push, so run the "
+            "check first.\n")
+    answer = {"description": DESCRIPTION, "body": body, "dropped": []}
+    sources = [Source(Skill(a), str(a)), Source(Skill(b), str(b))]
+    merged = merge(sources, "ship", tmp_path / "ship", FakeLlm(answer), own=True)
+    assert merged.untraced == [
+        {"line": 10, "text": "Pushing a tag is a push, so run the check first."}
+    ]
+    record = json.loads((tmp_path / "ship" / "sources.json").read_text())
+    assert record["untraced"] == merged.untraced
+
+
+# cli: untraced sentences are printed for review
+def test_cli_untraced(tmp_path, sources, capsys):
+    a, b = (s.origin for s in sources)
+    config = _config(tmp_path, _answer(RULES_A + RULES_B, extra="Also email the team.\n"))
+    assert main(["merge", a, b, "--name", "ship", "--out", str(tmp_path / "ship"),
+                 "--config", config]) == 0
+    out = capsys.readouterr().out
+    assert "in no source, check these: 2" in out
+    assert "Also email the team." in out

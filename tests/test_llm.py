@@ -363,3 +363,159 @@ def test_cli_llm_check_exits(tmp_path, monkeypatch, capsys):
     broken = _write(tmp_path, '[providers.x]\ntype = "nope"\n')
     assert main(["llm", "check", "--config", str(broken)]) == 2
     assert "unknown type" in capsys.readouterr().err
+
+
+# a stand-in for urlopen that records the request and returns a reply or raises
+class FakeOpener:
+    def __init__(self, reply=None, error=None):
+        self.reply, self.error, self.request, self.timeout = reply, error, None, None
+
+    def __call__(self, request, timeout):
+        self.request, self.timeout = request, timeout
+        if self.error:
+            raise self.error
+        body = self.reply if isinstance(self.reply, bytes) else json.dumps(self.reply).encode()
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def read(self):
+                return body
+
+        return Response()
+
+
+# a chat completions reply carrying content
+def _completion(content, finish="stop", refusal=None):
+    message = {"role": "assistant", "content": content, "refusal": refusal}
+    return {"choices": [{"message": message, "finish_reason": finish}]}
+
+
+# openai-compatible: url, key, model, messages and strict json schema are sent
+def test_openai_compatible_request(monkeypatch):
+    from syncret.core.llm import OpenAiCompatible
+
+    monkeypatch.setenv("SYNCRET_TEST_KEY", "sk-test")
+    opener = FakeOpener(_completion('{"label": "same"}'))
+    provider = OpenAiCompatible("router", base_url="https://openrouter.example/api/v1/",
+                                model="some/model", api_key_env="SYNCRET_TEST_KEY",
+                                opener=opener)
+    assert provider.ask("review", "be careful", "skill text", SCHEMA) == {"label": "same"}
+    request = opener.request
+    assert request.full_url == "https://openrouter.example/api/v1/chat/completions"
+    assert request.get_header("Authorization") == "Bearer sk-test"
+    body = json.loads(request.data)
+    assert body["model"] == "some/model"
+    assert body["messages"] == [{"role": "system", "content": "be careful"},
+                                {"role": "user", "content": "skill text"}]
+    assert body["response_format"] == {"type": "json_schema", "json_schema": {
+        "name": "answer", "schema": SCHEMA, "strict": True
+    }}
+
+
+# gemini: google's openai-compatible endpoint and GEMINI_API_KEY by default
+def test_gemini_defaults(monkeypatch):
+    from syncret.core.llm import Gemini
+
+    monkeypatch.setenv("GEMINI_API_KEY", "g-key")
+    opener = FakeOpener(_completion('{"label": "different"}'))
+    provider = Gemini("gemini", model="gemini-x", opener=opener)
+    assert provider.ask("overlap", "s", "c", SCHEMA) == {"label": "different"}
+    assert opener.request.full_url == (
+        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    )
+    assert opener.request.get_header("Authorization") == "Bearer g-key"
+    assert provider.can_see_own is False
+
+
+# a local server without json schema support: schema goes in the prompt, fences are stripped
+def test_openai_compatible_prompt_mode():
+    from syncret.core.llm import OpenAiCompatible
+
+    opener = FakeOpener(_completion('```json\n{"label": "same"}\n```'))
+    provider = OpenAiCompatible("ollama", base_url="http://localhost:11434/v1", model="llama",
+                                json_mode="prompt", opener=opener)
+    assert provider.ask("review", "be careful", "c", SCHEMA) == {"label": "same"}
+    body = json.loads(opener.request.data)
+    assert "response_format" not in body
+    assert '"enum": ["same", "different"]' in body["messages"][0]["content"]
+    assert opener.request.get_header("Authorization") is None
+
+
+@pytest.mark.parametrize(
+    ("options", "message"),
+    [
+        ({"base_url": "http://api.example.com/v1", "model": "m"}, "must use https"),
+        ({"base_url": "file:///etc", "model": "m"}, "must use https"),
+        ({"base_url": "https://api.example.com/v1"}, "set base_url and model"),
+        ({"base_url": "https://api.example.com/v1", "model": "m", "json_mode": "xml"},
+         "json_mode must be"),
+        ({"base_url": "https://api.example.com/v1", "model": "m", "api_key_env": "NOPE_KEY"},
+         "NOPE_KEY is not set")
+    ]
+)
+def test_openai_compatible_config_errors(monkeypatch, options, message):
+    from syncret.core.llm import OpenAiCompatible
+
+    monkeypatch.delenv("NOPE_KEY", raising=False)
+    opener = FakeOpener(_completion("{}"))
+    with pytest.raises(ProviderError, match=message):
+        OpenAiCompatible("x", opener=opener, **options).ask("review", "s", "c", SCHEMA)
+    assert opener.request is None
+
+
+# an http error built the way urllib raises it
+def _http_error(code, text):
+    import io
+    import urllib.error
+
+    return urllib.error.HTTPError("https://api.example.com", code, "error", {},
+                                  io.BytesIO(text.encode()))
+
+
+@pytest.mark.parametrize(
+    ("opener", "message", "retry"),
+    [
+        (FakeOpener(error=_http_error(429, "slow down")), "429: slow down", True),
+        (FakeOpener(error=_http_error(503, "busy")), "503: busy", True),
+        (FakeOpener(error=_http_error(401, "bad key")), "401: bad key", False),
+        (FakeOpener(error=TimeoutError("timed out")), "cannot reach", True),
+        (FakeOpener(b"<html>oops</html>"), "reply is not json", True),
+        (FakeOpener({"error": "no"}), "no choices", False),
+        (FakeOpener(_completion("", refusal="I can't help")), "refused: I can't help", False),
+        (FakeOpener(_completion('{"label": "sa', finish="length")), "cut off", False),
+        (FakeOpener(_completion("sure!")), "answer is not json", True)
+    ]
+)
+def test_openai_compatible_failures(opener, message, retry):
+    from syncret.core.llm import OpenAiCompatible
+
+    provider = OpenAiCompatible("x", base_url="https://api.example.com/v1", model="m",
+                                opener=opener)
+    with pytest.raises(ProviderError, match=message) as info:
+        provider.ask("review", "s", "c", SCHEMA)
+    assert info.value.retry is retry
+
+
+# both new types load from config
+def test_load_new_types(tmp_path):
+    path = _write(tmp_path, """
+[providers.gemini]
+type = "gemini"
+model = "gemini-x"
+
+[providers.local]
+type = "openai-compatible"
+base_url = "http://localhost:11434/v1"
+model = "llama"
+json_mode = "object"
+can_see_own = true
+""")
+    chain = Llm.load(path)
+    assert chain is not None
+    assert [type(p).__name__ for p in chain.providers.values()] == ["Gemini", "OpenAiCompatible"]
+    assert [p.name for p in chain.chain("review", own=True)] == ["local"]

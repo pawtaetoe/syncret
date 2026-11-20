@@ -4,6 +4,9 @@ import shutil
 import subprocess
 import time
 import tomllib
+import urllib.error
+import urllib.parse
+import urllib.request
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -174,6 +177,99 @@ class AnthropicApi:
             raise ProviderError("answer is not json", retry=True) from error
 
 
+# hosts that may be reached over plain http, since the traffic never leaves the machine
+_LOOPBACK = {"localhost", "127.0.0.1", "::1"}
+
+
+# any server speaking the openai chat completions api: openrouter, ollama, meta's model api
+@dataclass
+class OpenAiCompatible:
+    name: str
+    can_see_own: bool = False
+    base_url: str = ""
+    model: str = ""
+    api_key_env: str = ""
+    json_mode: str = "schema"
+    timeout: int = 600
+    opener: Any = None
+
+    # the chat completions url, https only unless the server is on this machine
+    def _url(self):
+        if not self.base_url or not self.model:
+            raise ProviderError("set base_url and model for this provider")
+        parts = urllib.parse.urlsplit(self.base_url)
+        local = parts.scheme == "http" and parts.hostname in _LOOPBACK
+        if parts.scheme != "https" and not local:
+            raise ProviderError(f"base_url must use https, or http to localhost: {self.base_url}")
+        return self.base_url.rstrip("/") + "/chat/completions"
+
+    def _body(self, system, content, schema):
+        if self.json_mode not in ("schema", "object", "prompt"):
+            raise ProviderError(f"json_mode must be schema, object or prompt, not {self.json_mode}")
+        if self.json_mode != "schema":
+            system += ("\n\nAnswer with only a JSON object that matches this JSON Schema:\n"
+                       + json.dumps(schema))
+        body: dict[str, Any] = {"model": self.model, "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": content}
+        ]}
+        if self.json_mode == "schema":
+            body["response_format"] = {"type": "json_schema", "json_schema": {
+                "name": "answer", "schema": schema, "strict": True
+            }}
+        elif self.json_mode == "object":
+            body["response_format"] = {"type": "json_object"}
+        return body
+
+    def ask(self, job, system, content, schema):
+        url = self._url()
+        headers = {"Content-Type": "application/json", "User-Agent": "syncret"}
+        if self.api_key_env:
+            key = os.environ.get(self.api_key_env)
+            if not key:
+                raise ProviderError(f"{self.api_key_env} is not set")
+            headers["Authorization"] = f"Bearer {key}"
+        data = json.dumps(self._body(system, content, schema)).encode()
+        # scheme checked in _url: https, or http to this machine only
+        request = urllib.request.Request(url, data=data, headers=headers, method="POST")  # noqa: S310
+        opener = self.opener or urllib.request.urlopen
+        try:
+            with opener(request, timeout=self.timeout) as response:
+                reply = json.loads(response.read())
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode(errors="replace").strip()[:300]
+            raise ProviderError(f"{error.code}: {detail}",
+                                retry=error.code == 429 or error.code >= 500) from error
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            reason = getattr(error, "reason", error)
+            raise ProviderError(f"cannot reach {url}: {reason}", retry=True) from error
+        except json.JSONDecodeError as error:
+            raise ProviderError("reply is not json", retry=True) from error
+        try:
+            choice = reply["choices"][0]
+            message = choice["message"]
+        except (KeyError, IndexError, TypeError) as error:
+            raise ProviderError("reply has no choices") from error
+        if message.get("refusal"):
+            raise ProviderError(f"refused: {message['refusal']}")
+        if choice.get("finish_reason") == "length":
+            raise ProviderError("answer cut off at the token limit")
+        text = (message.get("content") or "").strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[-1].rsplit("```", 1)[0]
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as error:
+            raise ProviderError("answer is not json", retry=True) from error
+
+
+# gemini through google's openai-compatible endpoint; model must be set in config
+@dataclass
+class Gemini(OpenAiCompatible):
+    base_url: str = "https://generativelanguage.googleapis.com/v1beta/openai/"
+    api_key_env: str = "GEMINI_API_KEY"
+
+
 # canned answers per job from a json file, for tests and dry runs
 @dataclass
 class Fake:
@@ -190,7 +286,13 @@ class Fake:
         return answers[job]
 
 
-PROVIDERS = {"claude-code": ClaudeCode, "anthropic": AnthropicApi, "fake": Fake}
+PROVIDERS = {
+    "claude-code": ClaudeCode,
+    "anthropic": AnthropicApi,
+    "openai-compatible": OpenAiCompatible,
+    "gemini": Gemini,
+    "fake": Fake
+}
 
 
 # providers tried in order per job, with retries, fallback and the own-skill gate
