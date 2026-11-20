@@ -228,6 +228,23 @@ def test_list_mentions(tmp_path, body, rule, severity):
     assert _run(rule, _skill(tmp_path, body)) == [severity]
 
 
+# acting without asking is left out when a warning label or lead-in describes it
+@pytest.mark.parametrize(
+    ("body", "flagged"),
+    [
+        ("- **Never do:** Commit secrets, remove failing tests without approval", False),
+        ("Avoid: pushing to main without asking.", False),
+        ("## Red Flags\n\n- Starting work\n- Overwriting open tasks, without asking",
+         False),
+        ("Note: delete the old branches without asking.", True),
+        ("- **Always do:** Remove failing tests without approval", True),
+        ("Setup steps:\n- Install the packages without asking", True)
+    ]
+)
+def test_without_asking_context(tmp_path, body, flagged):
+    assert _run("without-asking", _skill(tmp_path, body)) == (["warn"] if flagged else [])
+
+
 # a comment in a script describes rather than does, so it warns; code and shebangs still block
 @pytest.mark.parametrize(
     ("script", "severity"),
