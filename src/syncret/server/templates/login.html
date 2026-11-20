@@ -2,7 +2,8 @@
 {% block title %}Log in{% endblock %}
 {% block main %}
 <div class="login">
-  <h1><span class="mark" aria-hidden="true">s</span> syncret</h1>
+  <p class="brand"><span class="mark" data-mark="stack" aria-hidden="true"></span>syncret</p>
+  <h1>Log in to your skills server</h1>
   <div class="card">
     {% if not has_password %}
     <p class="notice caution">No password is set yet. Run <code>syncret set-password</code> on the server

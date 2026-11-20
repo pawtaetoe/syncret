@@ -6,7 +6,7 @@
   <span class="badge {{ p.state }}">{{ p.state }}</span>
 </div>
 <div class="meta">
-  <span>Built on <code>{{ (p.base or '')[:12] }}</code></span>
+  <span>Based on version <code>{{ (p.base or '')[:12] }}</code></span>
   <span>Updated <span class="num">{{ p.updated | when }}</span></span>
   <span>Skills {% for key in p.skills %}<code>{{ key | shown }}</code> {% endfor %}</span>
 </div>
@@ -15,7 +15,9 @@
 {% if p.state == "open" %}
 <div class="card">
   {% if p.blocked %}
-  <p class="notice bad">Blocked by its vetting report: it cannot be approved.</p>
+  <p class="notice bad">Blocked by its vetting report: it cannot be approved. Fix the findings below in the skill and add it again, or reject this proposal.</p>
+  {% elif p.vet and p.vet | selectattr("verdict", "equalto", "warn") | list %}
+  <p class="notice caution">Vetting found warnings. Read them below before you approve.</p>
   {% endif %}
   <div class="actions">
     {% if not p.blocked %}
@@ -25,14 +27,15 @@
       <button type="submit" class="primary">Approve and publish</button>
     </form>
     {% endif %}
-    <form method="post" action="/proposals/{{ p.id }}/reject" class="inline" data-confirm="Reject proposal {{ p.id }}?">
+    <form method="post" action="/proposals/{{ p.id }}/reject" class="inline" data-confirm="Reject proposal {{ p.id }}? Your skills stay as they are.">
       <input type="hidden" name="csrf" value="{{ csrf }}">
       <button type="submit" class="danger">Reject</button>
     </form>
   </div>
+  <p class="muted hint">{% if not p.blocked %}Approving publishes this change. Each computer picks it up at its next sync{% if sync_minutes %}, within {{ sync_minutes }} minutes{% endif %}. {% endif %}Rejecting drops it and changes nothing.</p>
 </div>
 {% elif p.state == "checking" %}
-<p class="notice caution" hx-get="/proposals/{{ p.id }}" hx-trigger="every 3s" hx-select="main" hx-target="main" hx-swap="outerHTML">Vetting and scanning...</p>
+<p class="notice caution" hx-get="/proposals/{{ p.id }}" hx-trigger="every 3s" hx-select="main" hx-target="main" hx-swap="outerHTML">Vetting and scanning. This page updates by itself.</p>
 {% endif %}
 
 {% if p.notes %}
@@ -43,6 +46,7 @@
 {% endif %}
 
 <h2>Vetting</h2>
+{% include "_verdicts.html" %}
 {% if p.vet is none %}<div class="card empty">Not vetted yet.</div>{% endif %}
 {% for r in p.vet or [] %}
 <div class="card">

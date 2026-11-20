@@ -308,13 +308,13 @@ Everything lives in the `syncret-data` volume: the skills repo, the job database
 
 | Page | Shows |
 |---|---|
-| Proposals | Pending changes with their vetting results |
+| Proposals | Pending changes with their vetting results, and a getting-started checklist until the first machine has synced |
 | Proposal | The diff, vetting report, scan findings, a suggested merge, and Approve or Reject |
 | Add | A GitHub or skills.sh link (or a folder on the server), then which skills to add and where to ship them |
-| Skills | Every published skill with its kind, source, pin and targets; edit own skills, remove any |
+| Skills | Every published skill with its kind, source, version and where it is sent; edit own skills, remove any |
 | Scan | Duplicates, collisions and overlaps across published skills |
-| Jobs | Running and finished jobs with their logs |
-| Machines | One release token per machine, its last sync and release |
+| Activity | Background jobs, running and finished, with their results and logs |
+| Machines | One release token per machine, the install commands for it, its last sync and release |
 | Claude account | Skills targeted at the Claude apps, a zip of each to upload, and which are out of date |
 | Settings | Sync intervals, the Claude token, the MCP token and LLM providers (as `llm.toml`) |
 

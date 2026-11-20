@@ -28,6 +28,16 @@ def _published(service):
         return {}
 
 
+# first-run steps as label, done and link, shown on the proposals page until all are done
+def _setup(service, rows):
+    machines = [m for m in service.machines.list() if not m.revoked]
+    return [("Add a skill from GitHub, skills.sh or a folder", bool(rows), "/add"),
+            ("Review the proposal and approve it", bool(_published(service)), "/proposals"),
+            ("Create a token for a computer", bool(machines), "/machines"),
+            ("Install the client on that computer", any(m.last_sync for m in machines),
+             "/machines")]
+
+
 @router.get("/proposals")
 async def proposals(request: Request):
     user(request)
@@ -35,7 +45,7 @@ async def proposals(request: Request):
     rows = service.proposals.list()
     waiting = [p for p in rows if p.state in WAITING]
     done = [p for p in rows if p.state not in WAITING]
-    return page(request, "proposals.html", waiting=waiting, done=done,
+    return page(request, "proposals.html", waiting=waiting, done=done, setup=_setup(service, rows),
                 busy=any(p.state in ("checking", "approving") for p in waiting))
 
 
@@ -46,7 +56,8 @@ async def proposal(request: Request, proposal_id: int, error: str = ""):
         found, diff = _service(request).show(proposal_id)
     except Refused as refused:
         return page(request, "message.html", status=404, message=str(refused))
-    return page(request, "proposal.html", p=found, diff=diff, error=error)
+    return page(request, "proposal.html", p=found, diff=diff, error=error,
+                sync_minutes=_service(request).settings.load()["sync_interval_minutes"])
 
 
 @router.post("/proposals/{proposal_id}/approve")
@@ -58,7 +69,8 @@ async def approve(request: Request, proposal_id: int):
         job = _service(request).approve(proposal_id, form.get("base", ""))
     except Refused as refused:
         found, diff = _service(request).show(proposal_id)
-        return page(request, "proposal.html", status=409, p=found, diff=diff, error=str(refused))
+        return page(request, "proposal.html", status=409, p=found, diff=diff, error=str(refused),
+                    sync_minutes=_service(request).settings.load()["sync_interval_minutes"])
     return RedirectResponse(f"/jobs/{job}", 303)
 
 

@@ -1,0 +1,12 @@
+{% set url = request.base_url | string | trim("/") %}
+<ol class="steps numbered">
+  <li>Get the client: <code>git clone https://github.com/pawtaetoe/syncret</code></li>
+  <li>Run its installer and paste the token when it asks.
+    <p class="os">Linux or macOS</p>
+    <pre>bash syncret/client/install.sh --url {{ url }}</pre>
+    <p class="os">Windows (PowerShell)</p>
+    <pre>powershell -ExecutionPolicy Bypass -File syncret\client\install.ps1 -Url {{ url }}</pre>
+  </li>
+  <li>On Linux, keep it syncing while you are logged out: <code>sudo loginctl enable-linger $USER</code></li>
+</ol>
+<p class="muted">The client checks for new skills every 15 minutes, and the table below shows each computer's last sync. Skills it already had in <code>~/.agents/skills</code> must be moved aside first; the README explains how.</p>

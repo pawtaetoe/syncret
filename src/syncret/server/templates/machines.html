@@ -2,19 +2,25 @@
 {% block title %}Machines{% endblock %}
 {% block main %}
 <h1>Machines</h1>
+<p class="intro">Each computer that syncs your skills needs its own token. Make one here, then install the client on that computer.</p>
 {% if error %}<p class="notice bad" role="alert">{{ error | shown }}</p>{% endif %}
 {% if token %}
 <div class="notice caution">
   <p>Token for <strong>{{ machine_name | shown }}</strong>. Copy it now: it is not shown again.</p>
   <pre>{{ token }}</pre>
 </div>
+<section class="card">
+  <h2>Set up {{ machine_name | shown }}</h2>
+  {% include "_install.html" %}
+</section>
 {% endif %}
 <form method="post" action="/machines" class="card">
   <input type="hidden" name="csrf" value="{{ csrf }}">
-  <label for="name">New machine</label>
-  <input type="text" id="name" name="name" maxlength="64" value="{{ machine_name }}" placeholder="laptop" autocomplete="off" required>
+  <label for="name">Name of the computer</label>
+  <input type="text" id="name" name="name" maxlength="64" value="{{ machine_name if error }}" placeholder="laptop" autocomplete="off" required>
   <div class="form-actions"><button type="submit" class="primary">Create token</button></div>
 </form>
+{% if not token %}<details class="card how"><summary>How to set up a computer</summary>{% include "_install.html" %}</details>{% endif %}
 <div class="card table-card">
 <table>
   <thead><tr><th>Machine</th><th>Created</th><th>Last sync</th><th>Release</th><th><span class="muted">Actions</span></th></tr></thead>
@@ -23,12 +29,12 @@
   <tr>
     <td><strong>{{ m.name | shown }}</strong></td><td class="num muted">{{ m.created | when }}</td><td class="num">{{ (m.last_sync | when) or 'never' }}</td><td><code>{{ m.release or '' }}</code></td>
     <td>{% if m.revoked %}<span class="badge rejected">revoked</span> <span class="num muted">{{ m.revoked | when }}</span>{% else %}
-      <form method="post" action="/machines/{{ m.id }}/revoke" class="inline" data-confirm="Revoke the token for {{ m.name }}?">
+      <form method="post" action="/machines/{{ m.id }}/revoke" class="inline" data-confirm="Revoke the token for {{ m.name }}? It stops syncing and keeps the skills it has.">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <button type="submit" class="small danger">Revoke</button>
       </form>{% endif %}</td>
   </tr>
-  {% else %}<tr><td colspan="5" class="empty">No machines yet.</td></tr>{% endfor %}
+  {% else %}<tr><td colspan="5" class="empty">No computers yet. Name one above to get its token.</td></tr>{% endfor %}
   </tbody>
 </table>
 </div>

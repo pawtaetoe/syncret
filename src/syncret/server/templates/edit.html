@@ -3,11 +3,11 @@
 {% block main %}
 <h1>Edit <code>{{ key | shown }}</code></h1>
 {% if error %}<p class="notice bad" role="alert">{{ error | shown }}</p>{% endif %}
-<p class="muted">Saving opens a proposal; nothing changes until you approve it.</p>
+<p class="intro">Saving opens a proposal; nothing changes until you approve it.</p>
 <form method="post" action="/skills/edit" class="card">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <input type="hidden" name="key" value="{{ key }}">
-  <label for="content">SKILL.md</label>
+  <label for="content">The skill file (SKILL.md)</label>
   <textarea id="content" name="content" rows="30" spellcheck="false" class="wide">{{ content }}</textarea>
   <div class="form-actions"><button type="submit" class="primary">Propose this edit</button></div>
 </form>

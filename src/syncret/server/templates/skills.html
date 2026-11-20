@@ -5,22 +5,23 @@
   <h1>Published skills</h1>
   <a class="btn primary" href="/add">Add a skill</a>
 </div>
+<p class="intro">These skills are on your computers now. <strong>Own</strong> skills came from a folder and you can edit them here; <strong>upstream</strong> skills follow their GitHub source, and an update becomes a new proposal; <strong>merged</strong> skills combine others and are rebuilt when those change. Removing or editing a skill opens a proposal too.</p>
 {% if not skills %}<div class="card empty">None yet. <a href="/add">Add a skill</a>.</div>{% else %}
 <div class="card table-card">
 <table>
-  <thead><tr><th>Skill</th><th>Kind</th><th>Source</th><th>Pin</th><th>Targets</th><th><span class="muted">Actions</span></th></tr></thead>
+  <thead><tr><th>Skill</th><th>Kind</th><th>Source</th><th>Version</th><th>Sent to</th><th><span class="muted">Actions</span></th></tr></thead>
   <tbody>
   {% for key, s in skills %}
   <tr>
     <td><strong>{{ s.name | shown }}</strong><br><code class="muted">{{ key | shown }}</code></td>
     <td><span class="badge">{{ s.kind }}</span></td>
-    <td class="finding-text">{% if s.source.startswith('https://') %}<a href="{{ s.source }}" rel="noreferrer noopener">{{ s.source | shown }}</a>{% else %}{{ s.source | shown }}{% endif %}</td>
+    <td class="finding-text">{% if s.source.startswith('https://') %}{% if s.source.startswith('https://github.com/') %}<img class="ic ic-ink" src="/static/icons/github.svg" alt="" width="18" height="18"> {% endif %}<a href="{{ s.source }}" rel="noreferrer noopener">{{ s.source | shown }}</a>{% else %}{{ s.source | shown }}{% endif %}</td>
     <td><code>{{ (s.pin or '')[:12] }}</code></td>
-    <td>{{ (s.targets or ['none']) | join(', ') }}</td>
+    <td>{% for t in s.targets or [] %}{{ {'local': 'Your computers', 'account': 'Claude account'}.get(t, t) }}{{ ', ' if not loop.last }}{% else %}<span class="muted">nowhere, used by a merge</span>{% endfor %}</td>
     <td>
       <div class="actions">
       {% if s.kind == 'own' %}<a class="btn small" href="/skills/edit?key={{ key | urlencode }}">Edit</a>{% endif %}
-      <form method="post" action="/skills/remove" class="inline" data-confirm="Propose removing {{ key }}?">
+      <form method="post" action="/skills/remove" class="inline" data-confirm="Propose removing {{ key }}? It leaves your computers only after you approve the removal.">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <input type="hidden" name="key" value="{{ key }}">
         <button type="submit" class="small danger">Remove</button>

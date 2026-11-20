@@ -1,14 +1,22 @@
 <div id="job"{% if job.state in ('queued', 'running') %} hx-get="/jobs/{{ job.id }}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
 <div class="page-head">
-  <h1>Job {{ job.id }}: {{ job.kind }}</h1>
+  <h1>{{ job.kind | job_name }}</h1>
   <span class="badge {{ job.state }}">{{ job.state }}</span>
 </div>
 <div class="meta">
+  <span>Job {{ job.id }}</span>
   <span>Attempt <span class="num">{{ job.attempts }} of {{ job.max_attempts }}</span></span>
   <span>Created <span class="num">{{ job.created | when }}</span></span>
   {% if job.finished %}<span>Finished <span class="num">{{ job.finished | when }}</span></span>{% endif %}
 </div>
+{% if job.state in ('queued', 'running') %}<p class="notice caution" role="status">{{ 'Waiting to start' if job.state == 'queued' else 'Working on it' }}. This page updates by itself.</p>{% endif %}
 {% if job.error %}<p class="notice bad" role="alert">{{ job.error | shown }}</p>{% endif %}
+{% if job.kind == "add" and job.result and job.result.proposals %}
+<div class="card next">
+  <p>{{ 'A proposal is' if job.result.proposals | length == 1 else 'Proposals are' }} ready for review.</p>
+  <div class="actions">{% for pid in job.result.proposals %}<a class="btn primary" href="/proposals/{{ pid }}">Review proposal {{ pid }}</a>{% endfor %}</div>
+</div>
+{% endif %}
 {% set r = job.result %}
 {% if r %}
   {% if r.choose %}

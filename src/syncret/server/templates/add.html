@@ -2,20 +2,26 @@
 {% block title %}Add{% endblock %}
 {% block main %}
 <h1>Add a skill</h1>
+<p class="intro">syncret fetches the skill, checks it for risky content and opens a proposal for you to review. Nothing reaches your computers until you approve it.</p>
 {% if error %}<p class="notice bad" role="alert">{{ error | shown }}</p>{% endif %}
 <form method="post" action="/add" class="card">
   <input type="hidden" name="csrf" value="{{ csrf }}">
   <label for="source">GitHub or skills.sh link, or a folder on the server</label>
-  <input type="text" id="source" name="source" value="{{ source }}" placeholder="https://github.com/owner/repo/tree/main/skills/name" autocomplete="off" spellcheck="false" required>
+  <input type="text" id="source" name="source" value="{{ source }}" placeholder="https://github.com/owner/repo/tree/main/skills/name" autocomplete="off" spellcheck="false" required aria-describedby="source-help">
+  <ul class="help" id="source-help">
+    <li>A whole repo: <code>https://github.com/owner/repo</code>, then pick the skills you want</li>
+    <li>One skill: <code>https://github.com/owner/repo/tree/main/skills/name</code> or its skills.sh page</li>
+    <li>A folder on the server: <code>/path/to/skill</code></li>
+  </ul>
   {% if choices %}
   <fieldset><legend>Skills in that repo</legend>
     {% for name in choices %}<label class="check"><input type="checkbox" name="skills" value="{{ name }}"> {{ name | shown }}</label>{% endfor %}
   </fieldset>
   {% endif %}
-  <fieldset><legend>Ship to</legend>
-    <label class="check"><input type="checkbox" name="targets" value="local" checked> Local agents (Claude Code, Copilot, Zed)</label>
-    <label class="check"><input type="checkbox" name="targets" value="account"> Claude account (zip upload)</label>
+  <fieldset><legend>Send it to</legend>
+    <label class="check"><input type="checkbox" name="targets" value="local" checked> Your computers, for Claude Code, Copilot and Zed <span class="icons"><img class="ic" src="/static/icons/claude-code.svg" alt="" width="29" height="18"><img class="ic ic-ink" src="/static/icons/github-copilot.svg" alt="" width="22" height="18"><img class="ic" src="/static/icons/zed.svg" alt="" width="18" height="18"></span></label>
+    <label class="check"><input type="checkbox" name="targets" value="account"> Your Claude account, as a zip you upload once <span class="icons"><img class="ic" src="/static/icons/claude.svg" alt="" width="18" height="18"></span></label>
   </fieldset>
-  <div class="form-actions"><button type="submit" class="primary">Add</button></div>
+  <div class="form-actions"><button type="submit" class="primary">Fetch and vet</button></div>
 </form>
 {% endblock %}

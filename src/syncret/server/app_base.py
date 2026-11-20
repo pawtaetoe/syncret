@@ -36,8 +36,17 @@ def diff_lines(diff):
             yield "", line
 
 
+# job kinds in plain words for people who never read the code
+JOB_NAMES = {"add": "Adding a skill", "vet": "Vetting a proposal", "scan": "Checking overlaps",
+             "merge": "Merging skills", "approve": "Approving a proposal",
+             "publish": "Publishing a release", "reject": "Rejecting a proposal",
+             "remove": "Proposing a removal", "edit": "Proposing an edit",
+             "scan-all": "Scanning all skills", "llm-check": "Testing the LLM providers",
+             "check-updates": "Checking upstream for updates"}
+
 templates.env.filters["when"] = when
 templates.env.filters["diff_lines"] = diff_lines
+templates.env.filters["job_name"] = lambda kind: JOB_NAMES.get(kind, kind)
 # scripts only from syncret itself; no framing, no plugins, no referrer
 HEADERS = {
     "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; "
