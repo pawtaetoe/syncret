@@ -358,7 +358,7 @@ client/install.sh --url https://syncret.example.com    # asks for the machine to
 client/install.sh --url https://syncret.example.com
 ```
 
-**Windows** (PowerShell, built-in `tar.exe`, directory junctions and a scheduled task; no admin rights needed; awaiting its first real run):
+**Windows** (PowerShell, built-in `tar.exe`, directory junctions and a scheduled task; no admin rights needed; not yet tested on Windows):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File client\install.ps1 -Url https://syncret.example.com
