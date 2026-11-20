@@ -19,6 +19,8 @@ _WARNING = re.compile(
     re.I
 )
 _LIST_ITEM = re.compile(r"(\s*)(?:[-*+]|\d+[.)])\s")
+# a whole-line comment in a script: #, //, /* or a * continuation, but not a #! shebang
+_COMMENT = re.compile(r"\s*(?:#(?!!)|//|/\*|\*(?:\s|$))")
 
 
 # one line that triggered a rule
@@ -31,8 +33,8 @@ class Finding:
     text: str
 
 
-# one vetting rule; a block drops to warn when the line says never or not (negatable)
-# or is a list item under a warning lead-in such as "red flags:" (mentionable)
+# one vetting rule; a block drops to warn when the line says never or not (negatable),
+# or is a list item under a warning lead-in or a comment in a script (mentionable)
 @dataclass(frozen=True)
 class Rule:
     id: str
@@ -45,10 +47,17 @@ class Rule:
         findings = []
         for file, line, text in self.check(skill, texts):
             negated = self.negatable and _NEGATION.search(text)
-            mentioned = self.mentionable and _WARNING.search(_lead_in(texts.get(file, []), line))
+            mentioned = self.mentionable and _mention(file, texts.get(file, []), line)
             severity = "warn" if negated or mentioned else self.severity
             findings.append(Finding(self.id, severity, file, line, text))
         return findings
+
+
+# true when a line talks about something rather than doing it
+def _mention(rel, lines, number):
+    if _is_script(rel, lines) and _COMMENT.match(lines[number - 1]):
+        return True
+    return bool(_WARNING.search(_lead_in(lines, number)))
 
 
 # the line a list item hangs from: the nearest earlier line that is not a sibling item
@@ -232,7 +241,6 @@ _CREDENTIALS = re.compile(
     r"(?<![\w.-])\.(?:ssh|aws|azure|gnupg|netrc|git-credentials|pypirc)\b"
     r"|(?<![\w.-])\.(?:kube/config|docker/config\.json|config/gcloud)\b"
     r"|\bid_(?:rsa|dsa|ecdsa|ed25519)\b"
-    r"|(?<![\w.$-])\.env\b(?!\.(?:example|sample|template|dist)\b)"
     r"|\bsecurity\s+(?:find-(?:generic|internet)-password|dump-keychain)\b"
     r"|Library/Keychains|\.keychain(?:-db)?\b|\bsecret-tool\s+lookup\b|\bkeyring\.get_password\b"
     r"|Google[\\/]+Chrome|google-chrome|chromium[\\/]|BraveSoftware|Microsoft[\\/]+Edge"
@@ -242,9 +250,17 @@ _CREDENTIALS = re.compile(
 )
 
 
-# reads of ssh keys, env files, cloud credentials, keychains and browser data
+# reads of ssh keys, cloud credentials, keychains and browser data
 def _credential_read(skill, texts):
     yield from _grep(_CREDENTIALS, texts)
+
+
+_ENV_FILE = re.compile(r"(?<![\w.$\\-])\.env\b(?!\.(?:example|sample|template|dist)\b)", re.I)
+
+
+# .env files, which hold secrets but are named in ordinary developer docs all the time
+def _env_file(skill, texts):
+    yield from _grep(_ENV_FILE, texts)
 
 
 _URL = re.compile(r"\b(?:https?|wss?|ftp)://(?:[^@/\s'\"`<>]*@)?(\[[0-9a-f:]+\]|[\w.-]+)", re.I)
@@ -302,9 +318,7 @@ _TAMPER = re.compile(
     re.I
 )
 _TAMPER_UNLESS_NEGATED = re.compile(
-    r"\bwithout\s+(?:(?:asking|confirming|prompting)(?!\s+you\b)|confirmation|permission|approval"
-    r"|the\s+user['\u2019]s\s+(?:consent|permission|approval))"
-    r"|\b(?:hide|conceal)\s+(?:this|these|the|your|all|any)\s+(?:actions?|changes?|commands?"
+    r"\b(?:hide|conceal)\s+(?:this|these|the|your|all|any)\s+(?:actions?|changes?|commands?"
     r"|steps?|output|activity|tool\s+calls?)"
     r"|\bskip\s+(?:all\s+|any\s+|the\s+)?(?:confirmations?|permission|approval)"
     r"|--dangerously-skip-permissions",
@@ -330,6 +344,21 @@ def _instruction_tampering(skill, texts):
     for rel, lines in texts.items():
         for number, line in enumerate(lines, 1):
             if _said(line, _TAMPER) or _said(line, _TAMPER_UNLESS_NEGATED, negatable=True):
+                yield rel, number, line
+
+
+_WITHOUT_ASKING = re.compile(
+    r"\bwithout\s+(?:(?:asking|confirming|prompting)(?!\s+you\b)|confirmation|permission|approval"
+    r"|the\s+user['\u2019]s\s+(?:consent|permission|approval))(?!\s+(?:only|unless)\b)",
+    re.I
+)
+
+
+# acting without asking: weaker than tampering, since docs on agent autonomy say it too
+def _without_asking(skill, texts):
+    for rel, lines in texts.items():
+        for number, line in enumerate(lines, 1):
+            if _said(line, _WITHOUT_ASKING, negatable=True):
                 yield rel, number, line
 
 
@@ -396,8 +425,10 @@ RULES = [
     Rule("encoded-blob", "warn", _encoded_blob),
     Rule("hidden-unicode", "block", _hidden_unicode),
     Rule("credential-read", "block", _credential_read, negatable=True, mentionable=True),
+    Rule("env-file", "warn", _env_file),
     Rule("unknown-host", "warn", _unknown_host),
     Rule("instruction-tampering", "block", _instruction_tampering, mentionable=True),
+    Rule("without-asking", "warn", _without_asking),
     Rule("prompt-injection", "block", _prompt_injection, mentionable=True),
     Rule("hidden-comment", "warn", _hidden_comment),
     Rule("broad-description", "warn", _broad_description),
