@@ -6,6 +6,7 @@ from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 
+from syncret.core.diff_rules import diff_rules, skill_file
 from syncret.core.llm import PROVIDERS, Llm, LlmError, default_config_path
 from syncret.core.scan import scan
 from syncret.core.skill import find_skills
@@ -33,6 +34,13 @@ def _parser():
     scan.add_argument("dirs", nargs="+", help="one or more skill folders")
     scan.add_argument("--json", action="store_true", help="print the report as JSON")
     scan.add_argument("--no-llm", action="store_true", help="run only checks that need no model")
+
+    diff = commands.add_parser(
+        "diff-rules", help="list rules kept, changed or dropped between two versions of a skill"
+    )
+    diff.add_argument("old", help="the earlier skill folder or SKILL.md")
+    diff.add_argument("new", help="the later skill folder or SKILL.md")
+    diff.add_argument("--json", action="store_true", help="print the report as JSON")
 
     llm = commands.add_parser("llm", help="check the configured LLM providers")
     llm_commands = llm.add_subparsers(dest="llm_command", required=True)
@@ -142,6 +150,39 @@ def _scan(args):
     return 1 if report.verdict == "block" else 0
 
 
+# one rule as "old:12  text", shortened and made safe for a terminal
+def _rule(side, rule):
+    text = _shown(rule.text)
+    text = text if len(text) <= _WIDTH else text[:_WIDTH - 3] + "..."
+    return f"{side}:{rule.line}  {text}"
+
+
+# rules kept, changed, dropped or added; exit 1 if one is dropped or flips meaning, 2 if missing
+def _diff_rules(args):
+    old, new = skill_file(args.old), skill_file(args.new)
+    missing = [str(p) for p in (old, new) if not p.is_file()]
+    if missing:
+        print(f"syncret: no such skill or file: {', '.join(missing)}", file=sys.stderr)
+        return 2
+    result = diff_rules(old.read_text(errors="replace"), new.read_text(errors="replace"))
+    if args.json:
+        print(json.dumps(result.to_dict(), indent=2))
+        return 0 if result.ok else 1
+    print(f"kept: {len(result.kept)}")
+    print(f"changed: {len(result.changed)}")
+    for pair in result.changed:
+        flag = "  meaning flipped" if pair.flipped else ""
+        print(f"  {pair.score:.2f}  {_rule('old', pair.old)}{flag}")
+        print(f"        {_rule('new', pair.new)}")
+    print(f"dropped: {len(result.dropped)}")
+    for rule in result.dropped:
+        print(f"  {_rule('old', rule)}")
+    print(f"added: {len(result.added)}")
+    for rule in result.added:
+        print(f"  {_rule('new', rule)}")
+    return 0 if result.ok else 1
+
+
 # one line per provider: works or not, its type and model, and whether it may see own skills;
 # exit 0 if any works, 1 if none do, 2 without a config
 def _llm_check(args):
@@ -170,4 +211,5 @@ def _llm_check(args):
 # entry point, returns the process exit code
 def main(argv=None):
     args = _parser().parse_args(argv)
-    return {"vet": _vet, "scan": _scan, "llm": _llm_check}[args.command](args)
+    commands = {"vet": _vet, "scan": _scan, "diff-rules": _diff_rules, "llm": _llm_check}
+    return commands[args.command](args)

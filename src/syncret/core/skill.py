@@ -5,7 +5,7 @@ from pathlib import Path
 
 import yaml
 
-_FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)^---[ \t]*\r?$\n?", re.S | re.M)
+FRONTMATTER = re.compile(r"\A---[ \t]*\r?\n(.*?)^---[ \t]*\r?$\n?", re.S | re.M)
 
 
 # one skill: a directory holding SKILL.md, read once and never executed
@@ -65,7 +65,7 @@ class Skill:
     # split SKILL.md into yaml frontmatter and body
     def _parse(self):
         self.text = self.files.get("SKILL.md", b"").decode("utf-8-sig", errors="replace")
-        match = _FRONTMATTER.match(self.text)
+        match = FRONTMATTER.match(self.text)
         if not match:
             self.body = self.text
             self.error = self.error or "missing frontmatter"
