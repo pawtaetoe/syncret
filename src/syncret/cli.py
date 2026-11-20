@@ -2,10 +2,12 @@ import argparse
 import json
 import sys
 from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 
 from syncret.core.scan import scan
 from syncret.core.skill import find_skills
+from syncret.core.upstream import Upstream, UpstreamError
 from syncret.core.vet import verdict, vet
 
 _WIDTH = 120
@@ -30,15 +32,28 @@ def _parser():
     return parser
 
 
-# vet every skill at path, exit 1 if any is blocked, 2 if there is nothing to vet
+# vet reports for a local path or a github or skills.sh link; raises UpstreamError when not found
+def _vet_reports(target):
+    path = Path(target)
+    if path.exists():
+        return [vet(skill) for skill in find_skills(path)]
+    upstream = Upstream.parse(target)
+    if upstream:
+        return [replace(vet(skill), path=link) for skill, link in upstream.load()]
+    if "://" in target:
+        raise UpstreamError(f"unsupported link: {target} (use a GitHub or skills.sh link)")
+    raise UpstreamError(f"no such path: {target}")
+
+
+# vet every skill at a path or link, exit 1 if any is blocked, 2 if there is nothing to vet
 def _vet(args):
-    path = Path(args.path)
-    if not path.exists():
-        print(f"syncret: no such path: {path}", file=sys.stderr)
+    try:
+        reports = _vet_reports(args.path)
+    except UpstreamError as error:
+        print(f"syncret: {error}", file=sys.stderr)
         return 2
-    reports = [vet(skill) for skill in find_skills(path)]
     if not reports:
-        print(f"syncret: no SKILL.md found under {path}", file=sys.stderr)
+        print(f"syncret: no SKILL.md found under {args.path}", file=sys.stderr)
         return 2
     overall = verdict(report.verdict for report in reports)
     if args.json:
