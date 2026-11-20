@@ -83,6 +83,17 @@ class ClaudeCode:
     model: str = ""
     command: str = "claude"
     timeout: int = 600
+    token_file: str = ""
+
+    # the environment for claude: a long-lived token from token_file when one is set
+    def _env(self):
+        if not self.token_file:
+            return None
+        path = Path(self.token_file).expanduser()
+        if not path.is_file():
+            raise ProviderError(f"token file {path} does not exist")
+        token = path.read_text().strip().removeprefix("CLAUDE_CODE_OAUTH_TOKEN=").strip()
+        return {**os.environ, "CLAUDE_CODE_OAUTH_TOKEN": token}
 
     def ask(self, job, system, content, schema):
         binary = shutil.which(self.command)
@@ -96,7 +107,7 @@ class ClaudeCode:
         try:
             result = subprocess.run(  # noqa: S603 - fixed argv, content goes on stdin
                 argv, input=content, capture_output=True, text=True, timeout=self.timeout,
-                check=False
+                check=False, env=self._env()
             )
         except subprocess.TimeoutExpired as error:
             raise ProviderError(f"timed out after {self.timeout}s", retry=True) from error

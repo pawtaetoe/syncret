@@ -10,6 +10,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from syncret.server import auth
 from syncret.server.app_base import HEADERS, HERE, NotLoggedIn, check_csrf, page, user
 from syncret.server.pages import router
+from syncret.server.release import router as release_router
 from syncret.server.service import Service
 from syncret.server.worker import Worker
 
@@ -83,6 +84,7 @@ def create_app(data, start_worker=True):
         return RedirectResponse("/login", 303)
 
     app.include_router(router)
+    app.include_router(release_router)
 
     @app.get("/")
     async def home(request: Request):

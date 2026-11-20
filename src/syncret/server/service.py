@@ -7,7 +7,7 @@ import tempfile
 from dataclasses import dataclass, replace
 from pathlib import Path
 
-from syncret.core.llm import Llm
+from syncret.core.llm import ClaudeCode, Llm
 from syncret.core.merge import MergeError, Source, merge
 from syncret.core.review import reviewed
 from syncret.core.scan import scan
@@ -17,7 +17,9 @@ from syncret.core.vet import vet
 from syncret.server.db import now
 from syncret.server.proposals import Proposals
 from syncret.server.queue import Queue
+from syncret.server.release import build_release
 from syncret.server.repo import Repo, Stale
+from syncret.server.settings import AccountUploads, Machines, Settings
 
 # scan labels that mean a new skill and a published one share a job, so a merge is suggested
 MERGE_LABELS = {"duplicate", "overlapping", "conflicting"}
@@ -57,15 +59,25 @@ class Service:
         self.proposals = Proposals(self.data / "syncret.db")
         self.repo = Repo(self.data)
         self.releases = self.data / "releases"
+        self.settings = Settings(self.data)
+        self.machines = Machines(self.data / "syncret.db")
+        self.account = AccountUploads(self.data / "syncret.db")
 
+    # the llm chain from llm.toml; claude code providers use the saved token unless set
     def llm(self):
-        return Llm.load(self.data / "llm.toml")
+        chain = Llm.load(self.settings.llm_path)
+        if chain is not None and self.settings.token_info() is not None:
+            for provider in chain.providers.values():
+                if isinstance(provider, ClaudeCode) and not provider.token_file:
+                    provider.token_file = str(self.settings.token_path)
+        return chain
 
     @property
     def handlers(self):
         return {"add": self._add, "vet": self._vet, "scan": self._scan, "merge": self._merge,
                 "approve": self._approve, "publish": self._publish, "reject": self._reject,
-                "remove": self._remove, "edit": self._edit, "scan-all": self._scan_all}
+                "remove": self._remove, "edit": self._edit, "scan-all": self._scan_all,
+                "llm-check": self._llm_check}
 
     # requests: validate, then queue a job and return its id
 
@@ -114,6 +126,9 @@ class Service:
 
     def scan_all(self):
         return self.queue.enqueue("scan-all")
+
+    def llm_check(self):
+        return self.queue.enqueue("llm-check", max_attempts=1)
 
     # reads
 
@@ -358,9 +373,10 @@ class Service:
             self.releases.mkdir(parents=True, exist_ok=True)
             release = self.releases / f"{new[:12]}.tar.gz"
             partial = release.with_suffix(".partial")
-            ctx.repo.archive(new, partial)
+            manifest = build_release(ctx.repo, new, new[:12], partial)
             os.replace(partial, release)
             ctx.repo.publish(new, old)
+            ctx.log(f"release {new[:12]}: {len(manifest['skills'])} skill(s) shipped")
         release = self.releases / f"{new[:12]}.tar.gz"
         if release.is_file():
             latest = {"id": new[:12], "commit": new, "created": now(),
@@ -396,6 +412,14 @@ class Service:
         self.proposals.update(proposal_id, scan={})
         self.queue.enqueue("vet", {"proposal": proposal_id})
         return {"proposal": proposal_id}
+
+    # each provider's answer to a question that holds no skill content
+    def _llm_check(self, ctx):
+        chain = self.llm()
+        if chain is None:
+            return {"providers": [], "note": "no LLM configured"}
+        return {"providers": [{"name": p.name, "ok": error is None, "error": error,
+                               "can_see_own": p.can_see_own} for p, error in chain.check()]}
 
     # a full scan of the published skills, reported in the job's result
     def _scan_all(self, ctx):

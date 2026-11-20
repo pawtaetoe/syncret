@@ -90,9 +90,14 @@ def test_approve_and_publish(service):
     assert latest["commit"] == service.repo.head("published")
     assert latest["sha256"] == hashlib.sha256(release.read_bytes()).hexdigest()
     with tarfile.open(release) as archive:
-        script = archive.getmember("skills/own/good/scripts/summarise.sh")
+        script = archive.getmember("skills/good/scripts/summarise.sh")
         assert script.mode & 0o111
-        assert "skills/own/good/SKILL.md" in archive.getnames()
+        assert "skills/good/SKILL.md" in archive.getnames()
+        manifest = json.load(archive.extractfile("manifest.json"))
+    assert manifest["commit"] == latest["commit"]
+    assert manifest["skills"] == [{"folder": "good", "key": "skills/own/good", "name": "good",
+                                   "kind": "own",
+                                   "links": {"claude": True, "copilot": True, "zed": True}}]
 
 
 # a stale approval is refused at once and rebuilt on the new main
