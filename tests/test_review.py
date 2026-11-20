@@ -223,3 +223,36 @@ def test_cli_broken_config(tmp_path, capsys):
     assert main(["vet", str(GOOD), "--config", str(config)]) == 2
     assert main(["scan", *SCAN_DIRS, "--config", str(config)]) == 2
     assert "unknown type" in capsys.readouterr().err
+
+
+# a concern quoting several lines is one finding at its first line, naming the rest once
+def test_one_finding_per_concern():
+    llm = FakeLlm({"review": {"concerns": [{"severity": "warn", "summary": "Totals unchecked",
+                                            "quotes": [
+        {"file": "SKILL.md", "text": REAL_LINE},
+        {"file": "scripts/summarise.sh", "text": "awk -F,"},
+        {"file": "SKILL.md", "text": REAL_LINE},
+        {"file": "SKILL.md", "text": "not in the skill"}
+    ]}]}})
+    findings, dropped, _ = review(Skill(GOOD), llm, own=False)
+    [finding] = findings
+    assert (finding.file, finding.line) == ("SKILL.md", 8)
+    assert finding.text == f"Totals unchecked -- {REAL_LINE} (also scripts/summarise.sh:2)"
+    assert dropped == 0
+
+
+# schema files are named but not sent, so a skill with large schemas can still be reviewed
+def test_schema_files_left_out(tmp_path):
+    root = tmp_path / "office"
+    (root / "schemas").mkdir(parents=True)
+    (root / "SKILL.md").write_text(
+        "---\nname: office\ndescription: Edit office documents with the bundled scripts.\n---\n"
+        "Run the validator before saving.\n"
+    )
+    (root / "schemas" / "wml.xsd").write_text("<xsd:schema>" + "x" * MAX_CHARS + "</xsd:schema>\n")
+    skill = Skill(root)
+    text = document(skill, "SKILL", "tok")
+    assert "Schema files not included: schemas/wml.xsd" in text
+    assert "<xsd:schema>" not in text
+    _, note = reviewed(skill, vet(skill), FakeLlm({"review": {"concerns": []}}), own=False)
+    assert note == "office: reviewed by fake, 1 schema file(s) left out"
