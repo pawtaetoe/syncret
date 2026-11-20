@@ -1,8 +1,9 @@
 import re
 from collections import defaultdict
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from itertools import combinations
 
+from syncret.core.review import Skipped, label_pair
 from syncret.core.skill import Skill, find_skills
 from syncret.core.vet import Report, verdict, vet
 
@@ -33,12 +34,16 @@ class Collision:
     paths: list[str]
 
 
-# two skills whose descriptions look alike, for the llm check to confirm
+# two skills that may do the same job; unconfirmed until an llm labels the pair
 @dataclass(frozen=True)
 class Overlap:
     paths: list[str]
     score: float
     label: str = "unconfirmed"
+    summary: str = ""
+    disagreements: list[dict] = field(default_factory=list)
+    provider: str = ""
+    note: str = ""
 
 
 # everything one scan found; it only reports and never edits
@@ -49,6 +54,7 @@ class ScanReport:
     duplicates: list[Duplicate]
     collisions: list[Collision]
     overlaps: list[Overlap]
+    notes: list[str] = field(default_factory=list)
 
     def to_dict(self):
         return asdict(self)
@@ -74,8 +80,23 @@ def similarity(a, b):
     return len(a & b) / len(a | b) if a and b else 0.0
 
 
-# load, vet and compare every skill under dirs
-def scan(dirs):
+# an overlap for a pair, labelled by the llm when one is given and allowed to see the pair
+def _overlap(a, b, score, llm, own, notes):
+    paths = [str(a.path), str(b.path)]
+    if llm is None:
+        return Overlap(paths, score)
+    try:
+        label = label_pair(a, b, llm, own)
+    except Skipped as error:
+        return Overlap(paths, score, note=str(error))
+    if label.dropped_quotes:
+        notes.append(f"{a.name} / {b.name}: {label.dropped_quotes} disagreement(s) dropped, "
+                     "quotes not found in the skills")
+    return Overlap(paths, score, label.label, label.summary, label.disagreements, label.provider)
+
+
+# load, vet and compare every skill under dirs; with an llm, label overlaps and collisions
+def scan(dirs, llm=None, own=True):
     # a path given twice, or inside another given dir, is one skill
     by_path: dict[str, Skill] = {}
     for directory in dirs:
@@ -93,13 +114,16 @@ def scan(dirs):
     collisions = [Collision(name, [str(s.path) for s in group])
                   for name, group in by_name.items() if len({s.hash for s in group}) > 1]
 
-    # one skill per content hash, so copies listed under duplicates are not paired again
-    overlaps = []
+    # one skill per content hash, so copies listed under duplicates are not paired again;
+    # with an llm, same-name pairs are labelled too, however different their descriptions
+    pairs = []
     for a, b in combinations([group[0] for group in by_hash.values()], 2):
-        score = similarity(a.description, b.description)
-        if score >= OVERLAP_THRESHOLD:
-            overlaps.append(Overlap([str(a.path), str(b.path)], round(score, 2)))
+        score = round(similarity(a.description, b.description), 2)
+        if score >= OVERLAP_THRESHOLD or (llm is not None and a.name == b.name):
+            pairs.append((a, b, score))
+    notes = []
+    overlaps = [_overlap(a, b, score, llm, own, notes) for a, b, score in pairs]
     overlaps.sort(key=lambda overlap: -overlap.score)
 
     overall = verdict(report.verdict for report in reports)
-    return ScanReport(overall, reports, duplicates, collisions, overlaps)
+    return ScanReport(overall, reports, duplicates, collisions, overlaps, notes)

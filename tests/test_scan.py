@@ -110,7 +110,7 @@ def test_cli_no_llm_notice(capsys):
 def test_cli_json(capsys):
     assert main(["scan", *SCAN_DIRS, "--json", "--no-llm"]) == 0
     data = json.loads(capsys.readouterr().out)
-    assert set(data) == {"verdict", "skills", "duplicates", "collisions", "overlaps"}
+    assert set(data) == {"verdict", "skills", "duplicates", "collisions", "overlaps", "notes"}
     assert data["verdict"] == "pass"
     assert len(data["skills"]) == 6
     assert data["collisions"][0]["name"] == "photo-rename"

@@ -8,12 +8,27 @@ from pathlib import Path
 
 from syncret.core.diff_rules import diff_rules, skill_file
 from syncret.core.llm import PROVIDERS, Llm, LlmError, default_config_path
+from syncret.core.review import reviewed
 from syncret.core.scan import scan
 from syncret.core.skill import find_skills
 from syncret.core.upstream import Upstream, UpstreamError
 from syncret.core.vet import verdict, vet
 
 _WIDTH = 120
+
+
+# options for commands that can use an llm
+def _llm_options(command):
+    command.add_argument("--no-llm", action="store_true", help="run only checks that need no model")
+    command.add_argument("--config", help=f"LLM config file (default {default_config_path()})")
+    command.add_argument("--public", action="store_true",
+                         help="treat local skills as public, so providers without can_see_own "
+                              "may see them")
+
+
+# the configured llm, or None with --no-llm or without a config; LlmError on a broken config
+def _llm(args):
+    return None if args.no_llm else Llm.load(args.config)
 
 
 # argument parser for every syncret command
@@ -27,13 +42,14 @@ def _parser():
     vet = commands.add_parser("vet", help="check a skill for risky content, exit 1 on block")
     vet.add_argument("path", help="a skill, a folder of skills, or a link")
     vet.add_argument("--json", action="store_true", help="print the report as JSON")
+    _llm_options(vet)
 
     scan = commands.add_parser(
         "scan", help="vet skill folders and find duplicates, name collisions and overlaps"
     )
     scan.add_argument("dirs", nargs="+", help="one or more skill folders")
     scan.add_argument("--json", action="store_true", help="print the report as JSON")
-    scan.add_argument("--no-llm", action="store_true", help="run only checks that need no model")
+    _llm_options(scan)
 
     diff = commands.add_parser(
         "diff-rules", help="list rules kept, changed or dropped between two versions of a skill"
@@ -51,14 +67,15 @@ def _parser():
     return parser
 
 
-# vet reports for a local path or a github or skills.sh link; raises UpstreamError when not found
-def _vet_reports(target):
+# (skill, report, own) for a local path or a github or skills.sh link; local skills are own
+# unless public; raises UpstreamError when not found
+def _vet_reports(target, public):
     path = Path(target)
     if path.exists():
-        return [vet(skill) for skill in find_skills(path)]
+        return [(skill, vet(skill), not public) for skill in find_skills(path)]
     upstream = Upstream.parse(target)
     if upstream:
-        return [replace(vet(skill), path=link) for skill, link in upstream.load()]
+        return [(skill, replace(vet(skill), path=link), False) for skill, link in upstream.load()]
     if "://" in target:
         raise UpstreamError(f"unsupported link: {target} (use a GitHub or skills.sh link)")
     raise UpstreamError(f"no such path: {target}")
@@ -67,22 +84,36 @@ def _vet_reports(target):
 # vet every skill at a path or link, exit 1 if any is blocked, 2 if there is nothing to vet
 def _vet(args):
     try:
-        reports = _vet_reports(args.path)
-    except UpstreamError as error:
+        llm = _llm(args)
+        vetted = _vet_reports(args.path, args.public)
+    except (UpstreamError, LlmError) as error:
         print(f"syncret: {error}", file=sys.stderr)
         return 2
-    if not reports:
+    if not vetted:
         print(f"syncret: no SKILL.md found under {args.path}", file=sys.stderr)
         return 2
+    reports, notes = [], []
+    for skill, report, own in vetted:
+        if llm is not None:
+            report, note = reviewed(skill, report, llm, own)
+            notes.append(note)
+        reports.append(report)
     overall = verdict(report.verdict for report in reports)
     if args.json:
         skills = [report.to_dict() for report in reports]
-        print(json.dumps({"verdict": overall, "skills": skills}, indent=2))
+        print(json.dumps({"verdict": overall, "skills": skills, "notes": notes}, indent=2))
     else:
+        _print_notes(notes)
         _print_reports(reports)
         if len(reports) > 1:
             print(f"\n{_summary(reports)}")
     return 1 if overall == "block" else 0
+
+
+# notes on how the llm steps went, to stderr so they never mix with the report
+def _print_notes(notes):
+    for note in notes:
+        print(f"syncret: {_shown(note)}", file=sys.stderr)
 
 
 # untrusted text made safe for a terminal: control, format and line-separator chars become
@@ -128,10 +159,15 @@ def _scan(args):
     if missing:
         print(f"syncret: no such folder: {', '.join(missing)}", file=sys.stderr)
         return 2
-    if not args.no_llm:
+    try:
+        llm = _llm(args)
+    except LlmError as error:
+        print(f"syncret: {error}", file=sys.stderr)
+        return 2
+    if llm is None and not args.no_llm:
         print("syncret: no LLM configured, running only checks that need no model",
               file=sys.stderr)
-    report = scan(args.dirs)
+    report = scan(args.dirs, llm, own=not args.public)
     if not report.skills:
         print(f"syncret: no SKILL.md found under {', '.join(args.dirs)}", file=sys.stderr)
         return 2
@@ -145,9 +181,31 @@ def _scan(args):
         print(f"vet: {_summary(report.skills)}")
         _print_groups("exact duplicates", [(d.hash[:12], d.paths) for d in report.duplicates])
         _print_groups("name collisions", [(c.name, c.paths) for c in report.collisions])
-        _print_groups("overlap candidates, unconfirmed",
-                      [(f"{o.score:.2f}", o.paths) for o in report.overlaps])
+        if llm is None:
+            _print_groups("overlap candidates, unconfirmed",
+                          [(f"{o.score:.2f}", o.paths) for o in report.overlaps])
+        else:
+            _print_overlaps(report.overlaps)
+        _print_notes(report.notes)
     return 1 if report.verdict == "block" else 0
+
+
+# labelled overlaps: label, score and paths, then the summary and each quoted disagreement
+def _print_overlaps(overlaps):
+    print(f"\noverlaps: {len(overlaps) or 'none'}")
+    for o in overlaps:
+        key = f"{o.label} {o.score:.2f}"
+        print(f"  {key}  {_shown(o.paths[0])}")
+        print(f"  {' ' * len(key)}  {_shown(o.paths[1])}")
+        detail = o.summary or o.note
+        if detail:
+            print(f"      {_shown(detail)}")
+        for d in o.disagreements:
+            for side in ("a", "b"):
+                quote = d[side]
+                print(f"      {side.upper()} {_shown(quote['file'])}:{quote['line']}  "
+                      f"{_shown(quote['text'])[:_WIDTH]}")
+            print(f"        {_shown(d['note'])}")
 
 
 # one rule as "old:12  text", shortened and made safe for a terminal
