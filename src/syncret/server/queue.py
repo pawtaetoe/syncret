@@ -1,9 +1,7 @@
 import json
-import sqlite3
-from contextlib import closing
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from pathlib import Path
+
+from syncret.server.db import Db, now
 
 SCHEMA = """
 create table if not exists jobs (
@@ -40,10 +38,6 @@ class Job:
     finished: str | None
 
 
-def _now():
-    return datetime.now(UTC).isoformat(timespec="seconds")
-
-
 def _job(row):
     values = dict(row)
     values["args"] = json.loads(values["args"])
@@ -52,25 +46,15 @@ def _job(row):
 
 
 # a job queue in sqlite that survives restarts; any process may read and enqueue
-class Queue:
+class Queue(Db):
     def __init__(self, path):
-        self.path = Path(path)
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self._db() as db:
-            db.execute("pragma journal_mode=wal")
-            db.execute(SCHEMA)
-
-    def _db(self):
-        db = sqlite3.connect(self.path, timeout=30, isolation_level=None)
-        db.row_factory = sqlite3.Row
-        db.execute("pragma busy_timeout=30000")
-        return closing(db)
+        super().__init__(path, SCHEMA)
 
     def enqueue(self, kind, args=None, max_attempts=3):
         with self._db() as db:
             cursor = db.execute(
                 "insert into jobs (kind, args, max_attempts, created) values (?, ?, ?, ?)",
-                (kind, json.dumps(args or {}), max_attempts, _now())
+                (kind, json.dumps(args or {}), max_attempts, now())
             )
             return cursor.lastrowid
 
@@ -91,7 +75,7 @@ class Queue:
                 "update jobs set state = 'running', attempts = attempts + 1, started = ?"
                 " where id = (select id from jobs where state = 'queued' order by id limit 1)"
                 " returning *",
-                (_now(),)
+                (now(),)
             ).fetchone()
             return _job(row) if row else None
 
@@ -104,7 +88,7 @@ class Queue:
         with self._db() as db:
             db.execute(
                 "update jobs set state = 'done', result = ?, finished = ? where id = ?",
-                (json.dumps(result or {}), _now(), job_id)
+                (json.dumps(result or {}), now(), job_id)
             )
 
     # a failed job goes back in the queue until it runs out of attempts
@@ -113,7 +97,7 @@ class Queue:
             db.execute(
                 "update jobs set error = ?, finished = ?, state = case"
                 " when attempts < max_attempts then 'queued' else 'failed' end where id = ?",
-                (str(error), _now(), job_id)
+                (str(error), now(), job_id)
             )
 
     # jobs left running by a crash or restart go back in the queue, or fail when out of attempts
