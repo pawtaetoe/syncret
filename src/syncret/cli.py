@@ -8,9 +8,10 @@ from pathlib import Path
 
 from syncret.core.diff_rules import diff_rules, skill_file
 from syncret.core.llm import PROVIDERS, Llm, LlmError, default_config_path
+from syncret.core.merge import MergeError, Source, merge
 from syncret.core.review import reviewed
 from syncret.core.scan import scan
-from syncret.core.skill import find_skills
+from syncret.core.skill import Skill, find_skills
 from syncret.core.upstream import Upstream, UpstreamError
 from syncret.core.vet import verdict, vet
 
@@ -57,6 +58,18 @@ def _parser():
     diff.add_argument("old", help="the earlier skill folder or SKILL.md")
     diff.add_argument("new", help="the later skill folder or SKILL.md")
     diff.add_argument("--json", action="store_true", help="print the report as JSON")
+
+    merge_cmd = commands.add_parser(
+        "merge", help="merge skills into one with an LLM, keeping every rule or saying why not"
+    )
+    merge_cmd.add_argument("sources", nargs="+", help="two or more skill folders or links")
+    merge_cmd.add_argument("--name", required=True, help="name of the merged skill")
+    merge_cmd.add_argument("--out", required=True, help="folder to create for the merged skill")
+    merge_cmd.add_argument("--json", action="store_true", help="print the report as JSON")
+    merge_cmd.add_argument("--config", help=f"LLM config file (default {default_config_path()})")
+    merge_cmd.add_argument("--public", action="store_true",
+                           help="treat local skills as public, so providers without can_see_own "
+                                "may see them")
 
     llm = commands.add_parser("llm", help="check the configured LLM providers")
     llm_commands = llm.add_subparsers(dest="llm_command", required=True)
@@ -241,6 +254,58 @@ def _diff_rules(args):
     return 0 if result.ok else 1
 
 
+# one merge source from a local skill folder or a link to one skill
+def _source(target):
+    path = Path(target)
+    if path.exists():
+        if not (path / "SKILL.md").is_file():
+            raise UpstreamError(f"{target} is not a skill folder (no SKILL.md)")
+        return Source(Skill(path), str(path.resolve()))
+    upstream = Upstream.parse(target)
+    if upstream is None:
+        raise UpstreamError(f"no such skill or supported link: {target}")
+    loaded = upstream.load()
+    if len(loaded) != 1:
+        raise UpstreamError(f"{target} holds {len(loaded)} skills; link to exactly one")
+    skill, link = loaded[0]
+    return Source(skill, link, commit=link.split("/tree/")[1].split("/")[0])
+
+
+# merge skills; exit 1 if rules went missing without a reason or the result is blocked, 2 if
+# it could not run
+def _merge(args):
+    try:
+        llm = Llm.load(args.config)
+        sources = [_source(target) for target in args.sources]
+    except (UpstreamError, LlmError) as error:
+        print(f"syncret: {error}", file=sys.stderr)
+        return 2
+    if llm is None:
+        config = args.config or default_config_path()
+        print(f"syncret: merge needs an LLM; none configured ({config})", file=sys.stderr)
+        return 2
+    own = not args.public and any(not s.commit for s in sources)
+    try:
+        merged = merge(sources, args.name, args.out, llm, own)
+    except MergeError as error:
+        print(f"syncret: {error}", file=sys.stderr)
+        for rule in error.unexplained:
+            print(f"  {_shown(rule)}", file=sys.stderr)
+        return 1 if error.unexplained else 2
+    report = vet(Skill(merged.out))
+    if args.json:
+        print(json.dumps({"out": str(merged.out), "provider": merged.provider,
+                          "dropped": merged.dropped, "vet": report.to_dict()}, indent=2))
+    else:
+        print(f"merged {len(sources)} skills into {_shown(merged.out)} (by {merged.provider})")
+        print(f"dropped with a reason: {len(merged.dropped)}")
+        for d in merged.dropped:
+            print(f"  {_shown(d['source'])}: {_shown(d['rule'])}")
+            print(f"    {_shown(d['reason'])}")
+        _print_reports([report])
+    return 1 if report.verdict == "block" else 0
+
+
 # one line per provider: works or not, its type and model, and whether it may see own skills;
 # exit 0 if any works, 1 if none do, 2 without a config
 def _llm_check(args):
@@ -269,5 +334,6 @@ def _llm_check(args):
 # entry point, returns the process exit code
 def main(argv=None):
     args = _parser().parse_args(argv)
-    commands = {"vet": _vet, "scan": _scan, "diff-rules": _diff_rules, "llm": _llm_check}
+    commands = {"vet": _vet, "scan": _scan, "diff-rules": _diff_rules, "merge": _merge,
+                "llm": _llm_check}
     return commands[args.command](args)

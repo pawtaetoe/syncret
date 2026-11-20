@@ -22,17 +22,26 @@ _SENTENCE = re.compile(r"(?<=[.!?])\s+")
 _MARKUP = re.compile(r"^\s*(?:[-*+]|\d+[.)]|#+|>)\s*|[*_]+")
 
 
+# lowercase words of a rule without markdown, list markers or end punctuation
+def words(text):
+    text = _MARKUP.sub("", text).replace("\u2019", "'").lower()
+    return re.findall(r"[\w'`./~-]+", text)
+
+
+# how alike two rules read, from 0 to 1
+def similarity(a, b):
+    return SequenceMatcher(None, words(a), words(b)).ratio()
+
+
 # one rule sentence and where it is
 @dataclass(frozen=True)
 class Rule:
     line: int
     text: str
 
-    # lowercase words without markdown, list markers or end punctuation
     @property
     def words(self):
-        text = _MARKUP.sub("", self.text).replace("\u2019", "'").lower()
-        return re.findall(r"[\w'`./~-]+", text)
+        return words(self.text)
 
     @property
     def negative(self):

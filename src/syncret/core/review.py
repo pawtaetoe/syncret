@@ -149,7 +149,7 @@ def locate(texts, quote, file=""):
 
 
 # ask one job, turning a too-large prompt or a failed chain into Skipped
-def _ask(llm, job, system, content, schema, own):
+def ask_job(llm, job, system, content, schema, own):
     if len(content) > MAX_CHARS:
         raise Skipped(f"too large to send ({len(content)} characters, limit {MAX_CHARS})")
     try:
@@ -161,7 +161,7 @@ def _ask(llm, job, system, content, schema, own):
 # llm review findings for one skill, plus how many concerns had no quote found in the skill
 def review(skill, llm, own):
     token = secrets.token_hex(8)
-    answer = _ask(llm, "review", REVIEW_SYSTEM, document(skill, "SKILL", token),
+    answer = ask_job(llm, "review", REVIEW_SYSTEM, document(skill, "SKILL", token),
                   REVIEW_SCHEMA, own)
     texts = text_files(skill)
     findings, dropped = [], 0
@@ -199,7 +199,7 @@ def reviewed(skill, report, llm, own):
 def label_pair(a, b, llm, own):
     token = secrets.token_hex(8)
     content = document(a, "SKILL A", token) + "\n\n" + document(b, "SKILL B", token)
-    answer = _ask(llm, "overlap", OVERLAP_SYSTEM, content, OVERLAP_SCHEMA, own)
+    answer = ask_job(llm, "overlap", OVERLAP_SYSTEM, content, OVERLAP_SCHEMA, own)
     texts_a, texts_b = text_files(a), text_files(b)
     result = Label(answer.data["label"], answer.data["summary"].strip(), answer.provider)
     for item in answer.data["disagreements"]:
