@@ -3,7 +3,7 @@ name = "syncret"
 version = "0.1.0"
 description = "Vet agent skills, find duplicates and conflicts, and merge them into one consistent set"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["pyyaml>=6.0.3"]
 
 [project.scripts]
 syncret = "syncret.cli:main"
