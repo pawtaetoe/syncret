@@ -171,7 +171,7 @@ def _encoded_blob(skill, texts):
 
 
 _HIDDEN = re.compile(
-    "[­᠎​-‍‪-‮⁠-⁤⁦-⁩︀-️﻿"
+    "[\u00ad\u180e\u200b-\u200d\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufe00-\ufe0f\ufeff"
     "\U000e0000-\U000e007f\U000e0100-\U000e01ef]"
 )
 _FLAG = "\U0001f3f4"
@@ -179,7 +179,7 @@ _FLAG = "\U0001f3f4"
 
 # emoji or emoji modifier, which zero-width joiners legitimately join
 def _emoji(char):
-    return bool(char) and (char == "️" or unicodedata.category(char) in ("So", "Sk"))
+    return bool(char) and (char == "\ufe0f" or unicodedata.category(char) in ("So", "Sk"))
 
 
 # non-ascii letter or mark, which zero-width non-joiners legitimately sit between
@@ -190,13 +190,13 @@ def _script_letter(char):
 # true when the invisible char at i has a legitimate use in context
 def _hidden_ok(line, i, first):
     char, prev, after = line[i], line[i - 1] if i else "", line[i + 1:i + 2]
-    if char == "﻿":
+    if char == "\ufeff":
         return first and i == 0
-    if char == "‍":
+    if char == "\u200d":
         return _emoji(prev) and _emoji(after)
-    if char == "‌":
+    if char == "\u200c":
         return _script_letter(prev) and _script_letter(after)
-    if "︀" <= char <= "️" or "\U000e0100" <= char <= "\U000e01ef":
+    if "\ufe00" <= char <= "\ufe0f" or "\U000e0100" <= char <= "\U000e01ef":
         return bool(prev) and not _HIDDEN.match(prev)
     if "\U000e0000" <= char <= "\U000e007f":
         start = i
@@ -218,6 +218,14 @@ def _hidden_unicode(skill, texts):
             if bad:
                 shown = "".join(f"<U+{ord(c):04X}>" if i in bad else c for i, c in enumerate(line))
                 yield rel, number, shown
+    # yaml escapes like "\n" or "\x1b" in name or description decode to control chars
+    for key in ("name", "description"):
+        value = skill.frontmatter.get(key)
+        allowed = "" if key == "name" else "\n\t"
+        if isinstance(value, str) and any(
+            c not in allowed and unicodedata.category(c) in ("Cc", "Cf") for c in value
+        ):
+            yield "SKILL.md", *_key_line(texts, key)
 
 
 _CREDENTIALS = re.compile(
@@ -309,14 +317,19 @@ def _quoted(line, start):
     return start > 0 and line[start - 1] in "\"'`\u201c\u2018"
 
 
+# true when pattern is said on the line: not quoted and, if negatable, not after a negation
+def _said(line, pattern, negatable=False):
+    return any(
+        not _quoted(line, m.start()) and not (negatable and _negated_before(line, m.start()))
+        for m in pattern.finditer(line)
+    )
+
+
 # instructions to skip confirmations, hide actions or ignore the user
 def _instruction_tampering(skill, texts):
     for rel, lines in texts.items():
         for number, line in enumerate(lines, 1):
-            hits = [m for m in _TAMPER.finditer(line) if not _quoted(line, m.start())]
-            hits += [m for m in _TAMPER_UNLESS_NEGATED.finditer(line)
-                     if not _quoted(line, m.start()) and not _negated_before(line, m.start())]
-            if hits:
+            if _said(line, _TAMPER) or _said(line, _TAMPER_UNLESS_NEGATED, negatable=True):
                 yield rel, number, line
 
 
@@ -335,6 +348,48 @@ def _broad_description(skill, texts):
         yield "SKILL.md", *_key_line(texts, "description")
 
 
+_INJECTION = re.compile(
+    # text addressed to whoever reviews or scans the skill
+    r"\b(?:ai|llm|automated|security)\s+(?:reviewers?|scanners?|auditors?|vetters?|checks?"
+    r"|tools?|models?)\b[^.\n]{0,80}?\b(?:is|are|as)\s+(?:safe|benign|harmless|trusted|approved)\b"
+    r"|\b(?:mark|report|classify|rate|approve)\s+(?:this|the)\s+skill\s+(?:as\s+)?"
+    r"(?:safe|benign|harmless|trusted|approved)\b"
+    # fake chat-turn and system markers
+    r"|<\|(?:system|im_start|im_end|endoftext)\|>|</?system>|\[/?INST\]|<</?SYS>>"
+    # identity and rule overrides
+    r"|\byou\s+are\s+now\s+(?:in\s+)?(?:developer|dan|jailbreak|unrestricted|unfiltered|god)\b"
+    r"|\b(?:disregard|forget)\s+(?:all\s+|any\s+|everything\s+)?(?:of\s+)?(?:your|the|previous"
+    r"|prior|above|earlier)\s+(?:\w+\s+)?(?:instructions|rules|guidelines|system\s+prompt)"
+    r"|\boverride\s+(?:your|the)\s+(?:system\s+prompt|safety\s+(?:rules|guidelines))",
+    re.I
+)
+
+
+# prompt injection: talking to the reviewer, fake system turns, identity or rule overrides
+def _prompt_injection(skill, texts):
+    for rel, lines in texts.items():
+        for number, line in enumerate(lines, 1):
+            if _said(line, _INJECTION):
+                yield rel, number, line
+
+
+_HTML_COMMENT = re.compile(r"<!--(.*?)(?:-->|\Z)", re.S)
+_LINK_COMMENT = re.compile(r"^\[//\]:\s*#\s*[(\"'](.*)[)\"']\s*$", re.M)
+_ADDRESSED = re.compile(r"\b(?:you|your|claude|assistant|agent|ai|model|llm)\b", re.I)
+
+
+# comments in markdown that speak to the agent: hidden when rendered, read by the agent
+def _hidden_comment(skill, texts):
+    for rel, lines in texts.items():
+        if not rel.lower().endswith((".md", ".markdown")):
+            continue
+        text = "\n".join(lines)
+        for match in [*_HTML_COMMENT.finditer(text), *_LINK_COMMENT.finditer(text)]:
+            if _ADDRESSED.search(match.group(1)):
+                number = text.count("\n", 0, match.start()) + 1
+                yield rel, number, lines[number - 1]
+
+
 RULES = [
     Rule("remote-code-run", "block", _remote_run, negatable=True, mentionable=True),
     Rule("unpinned-install", "warn", _unpinned_install),
@@ -343,6 +398,8 @@ RULES = [
     Rule("credential-read", "block", _credential_read, negatable=True, mentionable=True),
     Rule("unknown-host", "warn", _unknown_host),
     Rule("instruction-tampering", "block", _instruction_tampering, mentionable=True),
+    Rule("prompt-injection", "block", _prompt_injection, mentionable=True),
+    Rule("hidden-comment", "warn", _hidden_comment),
     Rule("broad-description", "warn", _broad_description),
     Rule("hooks-in-frontmatter", "warn", _hooks)
 ]

@@ -1,6 +1,7 @@
 import argparse
 import json
 import sys
+import unicodedata
 from collections import Counter
 from dataclasses import replace
 from pathlib import Path
@@ -66,14 +67,24 @@ def _vet(args):
     return 1 if overall == "block" else 0
 
 
+# untrusted text made safe for a terminal: control, format and line-separator chars become
+# visible <U+XXXX> markers, so a skill cannot forge report lines or send escape codes
+def _shown(text):
+    return "".join(
+        f"<U+{ord(c):04X}>" if c != "\t" and unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp")
+        else c
+        for c in str(text)
+    )
+
+
 # one header line per report and one line per finding
 def _print_reports(reports):
     for report in reports:
-        print(f"{report.verdict:<6} {report.name}  {report.path}")
+        print(f"{report.verdict:<6} {_shown(report.name)}  {_shown(report.path)}")
         for f in report.findings:
-            text = f.text.strip()
+            text = _shown(f.text.strip())
             text = text if len(text) <= _WIDTH else text[:_WIDTH - 3] + "..."
-            print(f"  {f.severity:<6} {f.rule}  {f.file}:{f.line}  {text}")
+            print(f"  {f.severity:<6} {f.rule}  {_shown(f.file)}:{f.line}  {text}")
 
 
 # count of skills per verdict, worst first
@@ -87,9 +98,10 @@ def _summary(reports):
 def _print_groups(title, groups):
     print(f"\n{title}: {len(groups) or 'none'}")
     for key, paths in groups:
-        print(f"  {key}  {paths[0]}")
+        key = _shown(key)
+        print(f"  {key}  {_shown(paths[0])}")
         for path in paths[1:]:
-            print(f"  {' ' * len(key)}  {path}")
+            print(f"  {' ' * len(key)}  {_shown(path)}")
 
 
 # vet and compare every skill under dirs; exit 1 if any is blocked, 2 if there are none
