@@ -280,7 +280,7 @@ Per the extension's docs, setting a wrapper also skips the "conversation still o
 
 ## Server
 
-`syncret` also runs as a small server for one person, in one Docker container: a git-backed skills repo where every change is a proposal you approve in a web dashboard, an MCP endpoint for agents, and releases that a sync client (coming next) pulls onto your machines.
+`syncret` also runs as a small server for one person, in one Docker container: a git-backed skills repo where every change is a proposal you approve in a web dashboard, an MCP endpoint for agents, and releases that the [sync client](#sync-client) pulls onto your machines.
 
 ### First run
 
@@ -323,6 +323,8 @@ Everything lives in the `syncret-data` volume: the skills repo, the job database
 - **Blocked proposals cannot be approved.**
 - **Overlaps suggest merges.** With an LLM configured, adding a skill that overlaps a published one also opens a merge proposal. Pick one, or reject both.
 - **One writer.** A single background worker makes every change, one job at a time. The dashboard and MCP only queue jobs.
+- **Upstream skills are tracked.** Every few hours (6 by default, set on the Settings page) the server fetches each upstream repo at the branch or tag a skill was added from. When a skill's content changed, it opens an update proposal. Settings also has "Check upstream now".
+- **Merges follow their sources.** Approving an update to a skill that a merged skill was built from opens a proposal rebuilding that merge, checked like any merge.
 
 ### MCP
 
@@ -337,7 +339,44 @@ Tools: `list_skills`, `list_proposals`, `show_proposal`, `approve(id, base)`, `r
 
 ### Releases
 
-Each approval publishes a release: a tarball holding only the skills meant for local agents, one folder each, and a `manifest.json` saying which agents link each one. A skill also targeted at the Claude account is not linked for Claude Code, which already loads it from the account. Machines fetch `/release/latest` and `/release/<id>.tar.gz` with their token from the Machines page.
+Each approval publishes a release: a tarball holding only the skills meant for local agents, one folder each, and a `manifest.json` (plus `links.tsv` for shell clients) saying which agents link each one. A skill also targeted at the Claude account is not linked for Claude Code, which already loads it from the account. Machines fetch `/release/latest` (or `?format=text`) and `/release/<id>.tar.gz` with their token from the Machines page.
+
+## Sync client
+
+A small client on each machine pulls approved releases every 15 minutes and links each skill into Claude Code (`~/.claude/skills`), Copilot (`~/.copilot/skills`) and Zed (`~/.agents/skills`). Make a token for the machine on the dashboard's Machines page first.
+
+**Linux** (bash, curl, tar and a systemd user timer):
+
+```bash
+git clone https://github.com/pawtaetoe/syncret && cd syncret
+client/install.sh --url https://syncret.example.com    # asks for the machine token
+```
+
+**macOS** (the same script with a launchd agent; not yet tested on a Mac):
+
+```bash
+client/install.sh --url https://syncret.example.com
+```
+
+**Windows** (PowerShell, built-in `tar.exe`, directory junctions and a scheduled task; no admin rights needed; not yet tested on Windows):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File client\install.ps1 -Url https://syncret.example.com
+```
+
+What it does on each run:
+
+1. Takes a lock, so only one sync runs at a time, and skips the run until the interval set on the server has passed.
+2. Asks `/release/latest` for the newest release and its SHA-256. The machine token is never passed on a command line.
+3. Downloads a new release, checks its SHA-256, unpacks it into `~/.local/share/syncret/releases/<id>/` (Windows: `%LOCALAPPDATA%\syncret\releases`) and makes it read-only.
+4. Points `~/.agents/skills` at the release in one atomic rename, so an agent sees the old release or the new one, never a mix. On Windows the junction swap takes two steps, so an agent starting at that instant may briefly find no folder.
+5. Links each skill into `~/.claude/skills` and `~/.copilot/skills` as the release says, through `~/.agents/skills`, so the next swap moves them too.
+6. Keeps the last 3 releases.
+
+It only ever changes or removes links it made. Your own skill folders, links to elsewhere, and anything already at a skill's name are left alone. It refuses to replace `~/.agents/skills` if that is a real folder.
+
+The config (server URL and machine token) lives in `~/.config/syncret/client.env` (Windows: `%APPDATA%\syncret\client.env`), readable only by you. Run `syncret-sync --force` (Windows: `sync.ps1 -Force`) to sync now. `install.sh --uninstall` (Windows: `install.ps1 -Uninstall`) removes the timer and script and leaves your skills on the last release.
+
 
 ## Exit codes
 
@@ -418,7 +457,7 @@ SYNCRET_CONTAINER_TEST=1 uv run pytest tests/container   # builds and runs the i
 1. Core CLI with `vet` and `scan --no-llm` (0.1.0)
 2. LLM backends, conflict checks, `merge` and `diff-rules` (next release)
 3. A single-user server with a dashboard, an MCP endpoint and an approval queue (this branch)
-4. A sync client, upstream tracking and merge rebuilds
+4. A sync client, upstream tracking and merge rebuilds (this branch)
 
 ## License
 

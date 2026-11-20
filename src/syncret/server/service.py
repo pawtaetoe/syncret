@@ -5,6 +5,7 @@ import re
 import shutil
 import tempfile
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from syncret.core.llm import ClaudeCode, Llm
@@ -12,7 +13,7 @@ from syncret.core.merge import MergeError, Source, merge
 from syncret.core.review import reviewed
 from syncret.core.scan import scan
 from syncret.core.skill import Skill, find_skills
-from syncret.core.upstream import Upstream
+from syncret.core.upstream import Upstream, UpstreamError
 from syncret.core.vet import vet
 from syncret.server.db import now
 from syncret.server.proposals import Proposals
@@ -77,7 +78,7 @@ class Service:
         return {"add": self._add, "vet": self._vet, "scan": self._scan, "merge": self._merge,
                 "approve": self._approve, "publish": self._publish, "reject": self._reject,
                 "remove": self._remove, "edit": self._edit, "scan-all": self._scan_all,
-                "llm-check": self._llm_check}
+                "llm-check": self._llm_check, "check-updates": self._check_updates}
 
     # requests: validate, then queue a job and return its id
 
@@ -129,6 +130,21 @@ class Service:
 
     def llm_check(self):
         return self.queue.enqueue("llm-check", max_attempts=1)
+
+    def check_updates(self):
+        return self.queue.enqueue("check-updates", max_attempts=1)
+
+    # queue an upstream check when none ran within the interval; True when one was queued
+    def schedule_due(self, at=None):
+        hours = self.settings.load()["check_interval_hours"]
+        jobs = [j for j in self.queue.jobs(500) if j.kind == "check-updates"]
+        if any(j.state in ("queued", "running") for j in jobs):
+            return False
+        at = at or datetime.now(UTC)
+        if jobs and at - datetime.fromisoformat(jobs[0].created) < timedelta(hours=hours):
+            return False
+        self.check_updates()
+        return True
 
     # reads
 
@@ -190,7 +206,7 @@ class Service:
                       f"{safe(skill.path.name)}"
                 found.append(Found(skill, key, {"name": skill.name, "kind": "upstream",
                                                 "path": key, "source": link, "pin": commit,
-                                                "targets": targets}))
+                                                "ref": upstream.ref, "targets": targets}))
             return found
         if Path(source).is_dir():
             return [Found(skill, f"skills/own/{safe(skill.name)}",
@@ -210,18 +226,66 @@ class Service:
             return {"choose": sorted(f.skill.name for f in found)}
         if not found:
             raise ValueError(f"no skill to add from {args['source']}")
-        current = ctx.repo.skills()["skills"]
-        made = []
-        for f in found:
-            kind = "update" if f.key in current else "add"
-            files = {**ctx.repo.removal(ctx.repo.head(), f.key), **skill_files(f.key, f.skill)}
-            origin = {"job": "add", "args": {**args, "skills": [f.skill.name]}}
-            proposal_id = self._propose(kind, f"{kind} {f.skill.name}", origin, files,
-                                        {f.key: f.entry}, [f.key], ctx)
-            self.queue.enqueue("vet", {"proposal": proposal_id})
-            self.queue.enqueue("scan", {"proposal": proposal_id})
-            made.append(proposal_id)
+        made = [self._propose_skill(f, {"job": "add", "args": {**args, "skills": [f.skill.name]}},
+                                    ctx) for f in found]
         return {"proposals": made}
+
+    # an add or update proposal for one fetched skill, then vet and scan for it
+    def _propose_skill(self, f, origin, ctx):
+        current = ctx.repo.skills()["skills"]
+        kind = "update" if f.key in current else "add"
+        # an update keeps the skill's targets, so a merge source stays unshipped
+        if kind == "update":
+            f.entry["targets"] = current[f.key].get("targets", f.entry["targets"])
+        files = {**ctx.repo.removal(ctx.repo.head(), f.key), **skill_files(f.key, f.skill)}
+        proposal_id = self._propose(kind, f"{kind} {f.skill.name}", origin, files,
+                                    {f.key: f.entry}, [f.key], ctx)
+        self.queue.enqueue("vet", {"proposal": proposal_id})
+        self.queue.enqueue("scan", {"proposal": proposal_id})
+        return proposal_id
+
+    # update proposals for upstream skills whose content changed at their tracked ref;
+    # one fetch per repo, and no second proposal for a commit that already has one
+    def _check_updates(self, ctx):
+        tracked = {key: entry for key, entry in ctx.repo.skills()["skills"].items()
+                   if entry["kind"] == "upstream"}
+        groups = {}
+        for key, entry in tracked.items():
+            owner, repo, path = _upstream_path(entry["source"])
+            groups.setdefault((owner, repo, entry.get("ref", "HEAD")), []).append((key, path))
+        waiting = self.proposals.list(states=["checking", "open", "approving"])
+        pending_pins = {(key, ctx.repo.skills(f"proposal/{p.id}")["skills"].get(key, {})
+                         .get("pin")) for p in waiting if p.kind == "update" for key in p.skills}
+        made, problems = [], []
+        for (owner, repo, ref), members in sorted(groups.items()):
+            try:
+                loaded = Upstream(owner, repo, ref).load()
+            except (UpstreamError, ValueError) as error:
+                problems.append(f"{owner}/{repo}@{ref}: {error}")
+                ctx.log(problems[-1])
+                continue
+            by_path = {}
+            for skill, link in loaded:
+                commit, _, rel = link.split("/tree/", 1)[1].partition("/")
+                by_path[rel] = (skill, link, commit)
+            for key, path in members:
+                if path not in by_path:
+                    problems.append(f"{key}: no longer at {path} in {owner}/{repo}@{ref}")
+                    ctx.log(problems[-1])
+                    continue
+                skill, link, commit = by_path[path]
+                entry = tracked[key]
+                if commit == entry["pin"] or (key, commit) in pending_pins:
+                    continue
+                with tempfile.TemporaryDirectory() as temp:
+                    if Skill(ctx.repo.export("main", key, temp)).hash == skill.hash:
+                        continue
+                found = Found(skill, key, {**entry, "name": skill.name, "source": link,
+                                           "pin": commit})
+                made.append(self._propose_skill(found, {"job": "check-updates", "args": {}},
+                                                ctx))
+                ctx.log(f"{key}: changed at {commit[:12]}, proposal {made[-1]}")
+        return {"proposals": made, "checked": len(tracked), "problems": problems}
 
     # rule vetting, plus an llm review when one is configured; own skills stay private
     def _vet(self, ctx):
@@ -364,7 +428,31 @@ class Service:
         ctx.repo.drop(str(proposal_id))
         self.proposals.update(proposal_id, state="approved")
         self.queue.enqueue("publish")
-        return {"approved": proposal_id}
+        rebuilds = self._rebuild_merges(proposal, ctx)
+        return {"approved": proposal_id, "rebuilds": rebuilds}
+
+    # re-merge every merged skill that uses a skill this proposal changed; publish is queued
+    # first, so the merge reads the new source; merges themselves never trigger rebuilds
+    def _rebuild_merges(self, proposal, ctx):
+        if proposal.kind == "merge":
+            return []
+        changed = set(proposal.skills)
+        jobs = []
+        for key, entry in sorted(ctx.repo.skills()["skills"].items()):
+            sources = entry.get("sources", [])
+            if entry["kind"] != "merged" or not changed & set(sources):
+                continue
+            if proposal.kind == "remove":
+                self.proposals.note(proposal.id, f"{key} uses a removed source; merge it again "
+                                                 "or remove it")
+            elif self.llm() is None:
+                self.proposals.note(proposal.id, f"{key} uses a changed source, but no LLM is "
+                                                 "configured to rebuild it")
+            else:
+                jobs.append(self.queue.enqueue("merge", {"keys": sources, "name": entry["name"],
+                                                         "rebuild": key}))
+                self.proposals.note(proposal.id, f"rebuilding {key} as job {jobs[-1]}")
+        return jobs
 
     # move published to main and pack the release; safe to run again after a crash
     def _publish(self, ctx):
@@ -429,3 +517,9 @@ class Service:
             root = ctx.repo.export("published", "skills", temp)
             report = scan([str(root)], self.llm(), own=True).to_dict()
         return json.loads(json.dumps(report).replace(str(root), "skills"))
+
+
+# owner, repo and path in the repo from a pinned github link
+def _upstream_path(link):
+    parts = link.split("github.com/", 1)[1].split("/")
+    return parts[0], parts[1], "/".join(parts[4:])

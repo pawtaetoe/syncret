@@ -105,3 +105,21 @@ def test_nothing_published(tmp_path):
     with TestClient(create_app(tmp_path / "data", start_worker=False)) as client:
         token = client.app.state.service.machines.create("laptop")
         assert client.get("/release/latest", headers=auth(token)).status_code == 404
+
+
+# the text forms carry exactly what the json ones do, for shell clients
+def test_text_formats(published):
+    client, _, token = published
+    latest = client.get("/release/latest", headers=auth(token)).json()
+    text = client.get("/release/latest?format=text", headers=auth(token))
+    assert text.headers["content-type"].startswith("text/plain")
+    assert text.text == f"{latest['id']} {latest['sha256']} {latest['interval_minutes']}\n"
+    data = client.get(latest["url"], headers=auth(token)).content
+    with tarfile.open(fileobj=io.BytesIO(data)) as archive:
+        manifest = json.load(archive.extractfile("manifest.json"))
+        tsv = archive.extractfile("links.tsv").read().decode()
+    rows = [line.split("\t") for line in tsv.splitlines()]
+    assert rows == [[s["folder"], *("1" if s["links"][a] else "0"
+                                    for a in ("claude", "copilot", "zed"))]
+                    for s in manifest["skills"]]
+    assert ["both", "0", "1", "1"] in rows

@@ -26,17 +26,29 @@ def create_app(data, start_worker=True):
     mcp_app = mcp.streamable_http_app(streamable_http_path="/mcp", stateless_http=True,
                                       json_response=True, transport_security=transport_security())
 
+    # queue an upstream check whenever one is due; a failed tick waits for the next one
+    async def schedule():
+        while True:
+            try:
+                await asyncio.to_thread(service.schedule_due)
+            # the loop must outlive one bad tick
+            except Exception as error:
+                print(f"syncret: scheduling upstream checks failed: {error}")
+            await asyncio.sleep(60)
+
     @asynccontextmanager
     async def lifespan(app):
-        task = None
+        task = scheduler = None
         if start_worker:
             worker = Worker(service.queue, service.repo, service.handlers)
             task = asyncio.create_task(worker.run())
+            scheduler = asyncio.create_task(schedule())
         app.state.worker = task
         async with mcp.session_manager.run():
             yield
-        if task:
-            task.cancel()
+        for running in (task, scheduler):
+            if running:
+                running.cancel()
 
     app = FastAPI(lifespan=lifespan, docs_url=None, redoc_url=None, openapi_url=None)
     app.state.service = service
