@@ -1,0 +1,33 @@
+{% if r.skills is number %}<p class="muted">No published skills yet.</p>{% else %}
+<h3>Skills</h3>
+<div class="table-card inset">
+<table>
+  <thead><tr><th>Skill</th><th>Verdict</th><th>Findings</th></tr></thead>
+  <tbody>
+  {% for s in r.skills %}
+  <tr>
+    <td><strong>{{ s.name | shown }}</strong><br><code class="muted">{{ s.path | shown }}</code></td>
+    <td><span class="badge {{ s.verdict }}">{{ s.verdict }}</span></td>
+    <td>{% if s.findings %}
+      <details><summary>{{ s.findings | length }} finding{{ 's' if s.findings | length != 1 }}</summary>
+      <ul class="findings">{% for f in s.findings %}
+        <li><span class="badge {{ f.severity }}">{{ f.severity }}</span> {{ f.rule }} <code class="muted">{{ f.file | shown }}:{{ f.line }}</code>
+          <div class="quote"><code>{{ f.text | shown }}</code></div></li>
+      {% endfor %}</ul></details>
+    {% else %}<span class="muted">none</span>{% endif %}</td>
+  </tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+<h3>Exact duplicates</h3>
+{% for d in r.duplicates %}<p><span class="badge duplicate">duplicate</span> {% for p in d.paths %}<code>{{ p | shown }}</code> {% endfor %}</p>{% else %}<p class="pass">None.</p>{% endfor %}
+<h3>Name collisions</h3>
+{% for c in r.collisions %}<p><code>{{ c.name | shown }}</code>: {% for p in c.paths %}<code>{{ p | shown }}</code> {% endfor %}</p>{% else %}<p class="pass">None.</p>{% endfor %}
+<h3>Overlaps</h3>
+{% for o in r.overlaps %}
+<div class="skill-head"><span class="badge {{ o.label }}">{{ o.label }}</span> <span class="num muted">{{ '%.2f' % o.score }}</span> {% for p in o.paths %}<code>{{ p | shown }}</code> {% endfor %}</div>
+{% if o.summary %}<p>{{ o.summary | shown }}</p>{% endif %}
+{% else %}<p class="pass">None.</p>{% endfor %}
+{% if r.notes %}<h3>Notes</h3><ul class="notes">{% for note in r.notes %}<li>{{ note | shown }}</li>{% endfor %}</ul>{% endif %}
+{% endif %}

@@ -9,21 +9,49 @@
   {% if job.finished %}<span>Finished <span class="num">{{ job.finished | when }}</span></span>{% endif %}
 </div>
 {% if job.error %}<p class="notice bad" role="alert">{{ job.error | shown }}</p>{% endif %}
-{% if job.result %}
-  {% if job.result.choose %}
+{% set r = job.result %}
+{% if r %}
+  {% if r.choose %}
   <form method="post" action="/add" class="card">
     <input type="hidden" name="csrf" value="{{ csrf }}">
     <input type="hidden" name="source" value="{{ job.args.source }}">
     {% for t in job.args.targets %}<input type="hidden" name="targets" value="{{ t }}">{% endfor %}
     <p>That link holds several skills. Pick the ones to add:</p>
-    {% for name in job.result.choose %}<label class="check"><input type="checkbox" name="skills" value="{{ name }}"> {{ name | shown }}</label>{% endfor %}
+    {% for name in r.choose %}<label class="check"><input type="checkbox" name="skills" value="{{ name }}"> {{ name | shown }}</label>{% endfor %}
     <div class="form-actions"><button type="submit" class="primary">Add these</button></div>
   </form>
-  {% endif %}
-  {% for pid in job.result.proposals or [] %}<p><a class="btn" href="/proposals/{{ pid }}">Proposal {{ pid }}</a></p>{% endfor %}
-  {% if job.result.proposal %}<p><a class="btn" href="/proposals/{{ job.result.proposal }}">Proposal {{ job.result.proposal }}</a></p>{% endif %}
+  {% elif job.kind == "scan-all" %}
+  <div class="card"><h2>Result</h2>{% include "_scan_report.html" %}</div>
+  {% else %}
+  <div class="card">
   <h2>Result</h2>
-  <pre>{{ job.result | tojson(indent=2) | shown }}</pre>
+  {% if job.kind == "llm-check" %}
+    {% if r.note %}<p class="notice caution">{{ r.note | shown }}</p>{% endif %}
+    {% for p in r.providers %}
+    <div class="skill-head"><span class="badge {{ 'pass' if p.ok else 'failed' }}">{{ 'works' if p.ok else 'failed' }}</span> <strong>{{ p.name | shown }}</strong>
+      <span class="muted">{{ 'may see own skills' if p.can_see_own else 'never sees own skills' }}</span></div>
+    {% if p.error %}<p class="error">{{ p.error | shown }}</p>{% endif %}
+    {% endfor %}
+  {% else %}
+  <dl class="facts">
+    {% if job.args.proposal and not (r.proposal or r.approved or r.rejected) %}<dt>For</dt><dd><a href="/proposals/{{ job.args.proposal }}">Proposal {{ job.args.proposal }}</a></dd>{% endif %}
+    {% if r.proposals is defined %}<dt>Proposals</dt><dd>{% for pid in r.proposals %}<a href="/proposals/{{ pid }}">Proposal {{ pid }}</a>{{ ', ' if not loop.last }}{% else %}<span class="muted">none</span>{% endfor %}</dd>{% endif %}
+    {% if r.proposal %}<dt>Proposal</dt><dd><a href="/proposals/{{ r.proposal }}">Proposal {{ r.proposal }}</a></dd>{% endif %}
+    {% if r.approved %}<dt>Approved</dt><dd><a href="/proposals/{{ r.approved }}">Proposal {{ r.approved }}</a></dd>{% endif %}
+    {% if r.rejected %}<dt>Rejected</dt><dd><a href="/proposals/{{ r.rejected }}">Proposal {{ r.rejected }}</a></dd>{% endif %}
+    {% if r.rebuilds %}<dt>Merge rebuilds</dt><dd>{% for jid in r.rebuilds %}<a href="/jobs/{{ jid }}">job {{ jid }}</a>{{ ', ' if not loop.last }}{% endfor %}</dd>{% endif %}
+    {% if r.stale %}<dt>Stale</dt><dd>Main moved past its base, so the proposal is being rebuilt.</dd>{% endif %}
+    {% if r.verdicts is defined %}<dt>Verdicts</dt><dd>{% for v in r.verdicts %}<span class="badge {{ v }}">{{ v }}</span> {% else %}<span class="muted">none</span>{% endfor %}</dd>{% endif %}
+    {% if r.overlaps is number %}<dt>Overlaps</dt><dd class="num">{{ r.overlaps }}</dd>{% endif %}
+    {% if r.collisions is number %}<dt>Name collisions</dt><dd class="num">{{ r.collisions }}</dd>{% endif %}
+    {% if r.release %}<dt>Release</dt><dd><code>{{ r.release }}</code></dd>{% endif %}
+    {% if r.checked is defined %}<dt>Skills checked</dt><dd class="num">{{ r.checked }}</dd>{% endif %}
+    {% if r.problems %}<dt>Problems</dt><dd><ul class="notes">{% for line in r.problems %}<li>{{ line | shown }}</li>{% endfor %}</ul></dd>{% endif %}
+  </dl>
+  {% endif %}
+  </div>
+  {% endif %}
+  <details class="raw"><summary>Raw result</summary><pre>{{ r | tojson(indent=2) | shown }}</pre></details>
 {% endif %}
 {% if job.log %}<h2>Log</h2><pre>{{ job.log | shown }}</pre>{% endif %}
 </div>

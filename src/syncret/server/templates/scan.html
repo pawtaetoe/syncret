@@ -12,22 +12,6 @@
 {% if last %}
 {% set r = last.result %}
 <p class="muted">Last scan: job <a href="/jobs/{{ last.id }}">{{ last.id }}</a>, <span class="num">{{ last.finished | when }}</span>.</p>
-{% if r.skills is number %}<div class="card empty">No published skills yet.</div>{% else %}
-<div class="card">
-<h2>Exact duplicates</h2>
-{% for d in r.duplicates %}<p><span class="badge duplicate">duplicate</span> {% for p in d.paths %}<code>{{ p | shown }}</code> {% endfor %}</p>{% else %}<p class="pass">None.</p>{% endfor %}
-</div>
-<div class="card">
-<h2>Name collisions</h2>
-{% for c in r.collisions %}<p><code>{{ c.name | shown }}</code>: {% for p in c.paths %}<code>{{ p | shown }}</code> {% endfor %}</p>{% else %}<p class="pass">None.</p>{% endfor %}
-</div>
-<div class="card">
-<h2>Overlaps</h2>
-{% for o in r.overlaps %}
-<div class="skill-head"><span class="badge {{ o.label }}">{{ o.label }}</span> <span class="num muted">{{ '%.2f' % o.score }}</span> {% for p in o.paths %}<code>{{ p | shown }}</code> {% endfor %}</div>
-{% if o.summary %}<p>{{ o.summary | shown }}</p>{% endif %}
-{% else %}<p class="pass">None.</p>{% endfor %}
-</div>
-{% endif %}
+<div class="card">{% include "_scan_report.html" %}</div>
 {% else %}<div class="card empty">No scan yet.</div>{% endif %}
 {% endblock %}
