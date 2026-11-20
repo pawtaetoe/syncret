@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import HTTPException
@@ -10,6 +11,33 @@ HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=HERE / "templates")
 # skill text and diffs show hidden and control characters as <U+XXXX>, after autoescaping
 templates.env.filters["shown"] = lambda text: shown(text, keep_newlines=True)
+
+
+# an iso time as a short utc time, anything else unchanged
+def when(value):
+    try:
+        return datetime.fromisoformat(value).strftime("%d %b %Y, %H:%M UTC")
+    except (TypeError, ValueError):
+        return value or ""
+
+
+# each diff line with the class that colours it
+def diff_lines(diff):
+    for line in diff.split("\n"):
+        if line.startswith(("diff --git", "+++", "---", "index ")):
+            yield "file", line
+        elif line.startswith("@@"):
+            yield "hunk", line
+        elif line.startswith("+"):
+            yield "add", line
+        elif line.startswith("-"):
+            yield "del", line
+        else:
+            yield "", line
+
+
+templates.env.filters["when"] = when
+templates.env.filters["diff_lines"] = diff_lines
 # scripts only from syncret itself; no framing, no plugins, no referrer
 HEADERS = {
     "Content-Security-Policy": "default-src 'self'; script-src 'self'; style-src 'self'; "

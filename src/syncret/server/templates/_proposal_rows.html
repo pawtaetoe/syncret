@@ -1,10 +1,10 @@
 {% for p in rows %}
 <tr>
-  <td><a href="/proposals/{{ p.id }}">#{{ p.id }}</a></td>
+  <td class="num"><a href="/proposals/{{ p.id }}">#{{ p.id }}</a></td>
   <td>{{ p.kind }}</td>
-  <td>{{ p.title | shown }}</td>
-  <td><span class="badge">{{ p.state }}</span></td>
-  <td>{% if p.vet is not none %}{% for r in p.vet %}<span class="{{ r.verdict }}">{{ r.verdict }}</span> {% endfor %}{% endif %}</td>
-  <td>{{ p.updated }}</td>
+  <td class="finding-text">{{ p.title | shown }}</td>
+  <td><span class="badge {{ p.state }}">{{ p.state }}</span></td>
+  <td>{% if p.vet is not none %}{% for r in p.vet %}<span class="badge {{ r.verdict }}">{{ r.verdict }}</span> {% else %}<span class="muted">none</span>{% endfor %}{% else %}<span class="muted">pending</span>{% endif %}</td>
+  <td class="num muted">{{ p.updated | when }}</td>
 </tr>
 {% endfor %}

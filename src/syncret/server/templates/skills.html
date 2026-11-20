@@ -1,27 +1,36 @@
 {% extends "base.html" %}
 {% block title %}Skills{% endblock %}
 {% block main %}
-<h1>Published skills</h1>
-{% if not skills %}<p>None yet. <a href="/add">Add a skill</a>.</p>{% else %}
+<div class="page-head">
+  <h1>Published skills</h1>
+  <a class="btn primary" href="/add">Add a skill</a>
+</div>
+{% if not skills %}<div class="card empty">None yet. <a href="/add">Add a skill</a>.</div>{% else %}
+<div class="card table-card">
 <table>
-  <tr><th>Skill</th><th>Kind</th><th>Source</th><th>Pin</th><th>Targets</th><th></th></tr>
+  <thead><tr><th>Skill</th><th>Kind</th><th>Source</th><th>Pin</th><th>Targets</th><th><span class="muted">Actions</span></th></tr></thead>
+  <tbody>
   {% for key, s in skills %}
   <tr>
-    <td>{{ s.name | shown }}<br><code>{{ key | shown }}</code></td>
-    <td>{{ s.kind }}</td>
-    <td>{% if s.source.startswith('https://') %}<a href="{{ s.source }}" rel="noreferrer noopener">{{ s.source | shown }}</a>{% else %}{{ s.source | shown }}{% endif %}</td>
+    <td><strong>{{ s.name | shown }}</strong><br><code class="muted">{{ key | shown }}</code></td>
+    <td><span class="badge">{{ s.kind }}</span></td>
+    <td class="finding-text">{% if s.source.startswith('https://') %}<a href="{{ s.source }}" rel="noreferrer noopener">{{ s.source | shown }}</a>{% else %}{{ s.source | shown }}{% endif %}</td>
     <td><code>{{ (s.pin or '')[:12] }}</code></td>
     <td>{{ (s.targets or ['none']) | join(', ') }}</td>
     <td>
-      {% if s.kind == 'own' %}<a href="/skills/edit?key={{ key | urlencode }}">Edit</a>{% endif %}
-      <form method="post" action="/skills/remove" class="inline">
+      <div class="actions">
+      {% if s.kind == 'own' %}<a class="btn small" href="/skills/edit?key={{ key | urlencode }}">Edit</a>{% endif %}
+      <form method="post" action="/skills/remove" class="inline" data-confirm="Propose removing {{ key }}?">
         <input type="hidden" name="csrf" value="{{ csrf }}">
         <input type="hidden" name="key" value="{{ key }}">
-        <button type="submit">Remove</button>
+        <button type="submit" class="small danger">Remove</button>
       </form>
+      </div>
     </td>
   </tr>
   {% endfor %}
+  </tbody>
 </table>
+</div>
 {% endif %}
 {% endblock %}
