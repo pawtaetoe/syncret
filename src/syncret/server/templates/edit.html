@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Edit{% endblock %}
+{% block main %}
+<h1>Edit <code>{{ key | shown }}</code></h1>
+{% if error %}<p class="error">{{ error | shown }}</p>{% endif %}
+<p>Saving opens a proposal; nothing changes until you approve it.</p>
+<form method="post" action="/skills/edit">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <input type="hidden" name="key" value="{{ key }}">
+  <textarea name="content" rows="30" cols="100">{{ content }}</textarea>
+  <p><button type="submit">Propose this edit</button></p>
+</form>
+{% endblock %}

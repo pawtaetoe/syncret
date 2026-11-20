@@ -1,7 +1,8 @@
 import argparse
+import getpass
 import json
+import os
 import sys
-import unicodedata
 from collections import Counter
 from dataclasses import replace
 from pathlib import Path
@@ -12,6 +13,7 @@ from syncret.core.merge import MergeError, Source, merge
 from syncret.core.review import reviewed
 from syncret.core.scan import scan
 from syncret.core.skill import Skill, find_skills
+from syncret.core.text import shown
 from syncret.core.upstream import Upstream, UpstreamError
 from syncret.core.vet import verdict, vet
 
@@ -71,6 +73,14 @@ def _parser():
                            help="treat local skills as public, so providers without can_see_own "
                                 "may see them")
 
+    serve = commands.add_parser("serve", help="run the server: dashboard, MCP and releases")
+    serve.add_argument("--data", help="data folder (default $SYNCRET_DATA or "
+                                      "~/.local/share/syncret/server)")
+    serve.add_argument("--host", default="127.0.0.1", help="address to listen on")
+    serve.add_argument("--port", type=int, default=8080, help="port to listen on")
+    password = commands.add_parser("set-password", help="set the dashboard password")
+    password.add_argument("--data", help="data folder (as for serve)")
+
     llm = commands.add_parser("llm", help="check the configured LLM providers")
     llm_commands = llm.add_subparsers(dest="llm_command", required=True)
     check = llm_commands.add_parser(
@@ -129,14 +139,7 @@ def _print_notes(notes):
         print(f"syncret: {_shown(note)}", file=sys.stderr)
 
 
-# untrusted text made safe for a terminal: control, format and line-separator chars become
-# visible <U+XXXX> markers, so a skill cannot forge report lines or send escape codes
-def _shown(text):
-    return "".join(
-        f"<U+{ord(c):04X}>" if c != "\t" and unicodedata.category(c) in ("Cc", "Cf", "Zl", "Zp")
-        else c
-        for c in str(text)
-    )
+_shown = shown
 
 
 # one header line per report and one line per finding
@@ -310,6 +313,43 @@ def _merge(args):
     return 1 if report.verdict == "block" else 0
 
 
+# the server's data folder: --data, then $SYNCRET_DATA, then a folder in the user's home
+def _data(args):
+    default = Path.home() / ".local" / "share" / "syncret" / "server"
+    return Path(args.data or os.environ.get("SYNCRET_DATA") or default)
+
+
+# run the dashboard, MCP, release endpoints and the worker in one process
+def _serve(args):
+    try:
+        import uvicorn
+
+        from syncret.server.app import create_app
+    except ImportError:
+        print('syncret: the server needs `pip install "syncret[server]"`', file=sys.stderr)
+        return 2
+    uvicorn.run(create_app(_data(args)), host=args.host, port=args.port,
+                proxy_headers=True, forwarded_allow_ips="127.0.0.1")
+    return 0
+
+
+# ask for the dashboard password twice and store its scrypt hash in the data folder
+def _set_password(args):
+    from syncret.server.auth import set_password
+
+    first = getpass.getpass("New dashboard password: ")
+    if first != getpass.getpass("Again: "):
+        print("syncret: the passwords differ", file=sys.stderr)
+        return 2
+    try:
+        set_password(_data(args), first)
+    except ValueError as error:
+        print(f"syncret: {error}", file=sys.stderr)
+        return 2
+    print(f"password set for {_data(args)}")
+    return 0
+
+
 # one line per provider: works or not, its type and model, and whether it may see own skills;
 # exit 0 if any works, 1 if none do, 2 without a config
 def _llm_check(args):
@@ -339,5 +379,5 @@ def _llm_check(args):
 def main(argv=None):
     args = _parser().parse_args(argv)
     commands = {"vet": _vet, "scan": _scan, "diff-rules": _diff_rules, "merge": _merge,
-                "llm": _llm_check}
+                "llm": _llm_check, "serve": _serve, "set-password": _set_password}
     return commands[args.command](args)

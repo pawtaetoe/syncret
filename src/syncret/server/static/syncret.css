@@ -1,0 +1,15 @@
+body { font-family: system-ui, sans-serif; margin: 0; color: #1d1d1f; background: #fafafa; }
+header { display: flex; gap: 1.5rem; align-items: center; padding: .75rem 1.5rem; background: #fff; border-bottom: 1px solid #ddd; }
+nav { display: flex; gap: 1rem; flex: 1; }
+nav a { color: #1d1d1f; text-decoration: none; }
+main { padding: 1.5rem; max-width: 72rem; }
+table { border-collapse: collapse; width: 100%; background: #fff; }
+th, td { text-align: left; padding: .4rem .6rem; border-bottom: 1px solid #eee; vertical-align: top; }
+pre { background: #fff; border: 1px solid #ddd; padding: .75rem; overflow-x: auto; white-space: pre-wrap; word-break: break-word; }
+.inline { display: inline; }
+.error, .block { color: #b3261e; }
+.warn { color: #8a5300; }
+.pass { color: #1b6e2a; }
+.badge { padding: .1rem .45rem; border-radius: .3rem; background: #eee; font-size: .85em; }
+form label { display: block; margin: .5rem 0; }
+button { cursor: pointer; }

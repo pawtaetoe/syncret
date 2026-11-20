@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Proposals{% endblock %}
+{% block main %}
+<div id="list"{% if busy %} hx-get="/proposals" hx-trigger="every 3s" hx-select="#list" hx-swap="outerHTML"{% endif %}>
+<h1>Proposals</h1>
+{% if waiting %}
+<table>
+  <tr><th>#</th><th>Kind</th><th>Change</th><th>State</th><th>Vet</th><th>Updated</th></tr>
+  {% with rows = waiting %}{% include "_proposal_rows.html" %}{% endwith %}
+</table>
+{% else %}
+<p>Nothing waiting. <a href="/add">Add a skill</a>.</p>
+{% endif %}
+{% if done %}
+<h2>Earlier</h2>
+<table>
+  <tr><th>#</th><th>Kind</th><th>Change</th><th>State</th><th>Vet</th><th>Updated</th></tr>
+  {% with rows = done %}{% include "_proposal_rows.html" %}{% endwith %}
+</table>
+{% endif %}
+</div>
+{% endblock %}

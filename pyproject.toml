@@ -30,6 +30,13 @@ syncret = "syncret.cli:main"
 
 [project.optional-dependencies]
 anthropic = ["anthropic>=2.11.0"]
+server = [
+    "fastapi>=0.165.0",
+    "itsdangerous>=2.2.0",
+    "jinja2>=3.1.6",
+    "python-multipart>=0.0.34",
+    "uvicorn>=0.54.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.9,<0.14"]
@@ -43,7 +50,7 @@ target-version = "py312"
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "S"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/**" = ["S101", "S603", "S607"]
+"tests/**" = ["S101", "S105", "S106", "S603", "S607"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -57,7 +64,13 @@ error-on-warning = true
 [dependency-groups]
 dev = [
     "anthropic>=2.11.0",
+    "fastapi>=0.165.0",
+    "httpx>=0.28.1",
+    "itsdangerous>=2.2.0",
+    "jinja2>=3.1.6",
     "pytest>=9.2.0",
+    "python-multipart>=0.0.34",
     "ruff>=0.17.6",
     "ty>=0.0.107",
+    "uvicorn>=0.54.0",
 ]

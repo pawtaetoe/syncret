@@ -1,0 +1,21 @@
+<div id="job"{% if job.state in ('queued', 'running') %} hx-get="/jobs/{{ job.id }}" hx-trigger="every 2s" hx-swap="outerHTML"{% endif %}>
+<h1>Job {{ job.id }}: {{ job.kind }} <span class="badge">{{ job.state }}</span></h1>
+<p>Attempt {{ job.attempts }} of {{ job.max_attempts }}. Created {{ job.created }}{% if job.finished %}, finished {{ job.finished }}{% endif %}.</p>
+{% if job.error %}<p class="error">{{ job.error | shown }}</p>{% endif %}
+{% if job.result %}
+  {% if job.result.choose %}
+  <form method="post" action="/add">
+    <input type="hidden" name="csrf" value="{{ csrf }}">
+    <input type="hidden" name="source" value="{{ job.args.source }}">
+    {% for t in job.args.targets %}<input type="hidden" name="targets" value="{{ t }}">{% endfor %}
+    <p>That link holds several skills. Pick the ones to add:</p>
+    {% for name in job.result.choose %}<label><input type="checkbox" name="skills" value="{{ name }}"> {{ name | shown }}</label>{% endfor %}
+    <button type="submit">Add these</button>
+  </form>
+  {% endif %}
+  {% for pid in job.result.proposals or [] %}<p><a href="/proposals/{{ pid }}">Proposal {{ pid }}</a></p>{% endfor %}
+  {% if job.result.proposal %}<p><a href="/proposals/{{ job.result.proposal }}">Proposal {{ job.result.proposal }}</a></p>{% endif %}
+  <pre>{{ job.result | tojson(indent=2) | shown }}</pre>
+{% endif %}
+{% if job.log %}<h2>Log</h2><pre>{{ job.log | shown }}</pre>{% endif %}
+</div>

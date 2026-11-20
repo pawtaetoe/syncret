@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Add{% endblock %}
+{% block main %}
+<h1>Add a skill</h1>
+{% if error %}<p class="error">{{ error | shown }}</p>{% endif %}
+<form method="post" action="/add">
+  <input type="hidden" name="csrf" value="{{ csrf }}">
+  <label>GitHub or skills.sh link, or a folder on the server
+    <input type="text" name="source" value="{{ source }}" size="70" required></label>
+  {% if choices %}
+  <fieldset><legend>Skills in that repo</legend>
+    {% for name in choices %}<label><input type="checkbox" name="skills" value="{{ name }}"> {{ name | shown }}</label>{% endfor %}
+  </fieldset>
+  {% endif %}
+  <fieldset><legend>Ship to</legend>
+    <label><input type="checkbox" name="targets" value="local" checked> Local agents (Claude Code, Copilot, Zed)</label>
+    <label><input type="checkbox" name="targets" value="account"> Claude account (zip upload)</label>
+  </fieldset>
+  <button type="submit">Add</button>
+</form>
+{% endblock %}
