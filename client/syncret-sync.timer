@@ -1,0 +1,10 @@
+[Unit]
+Description=Run syncret-sync every 15 minutes; it skips runs until the server's interval has passed
+
+[Timer]
+OnCalendar=*:0/15
+Persistent=true
+RandomizedDelaySec=60
+
+[Install]
+WantedBy=timers.target
